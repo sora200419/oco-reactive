@@ -13,6 +13,7 @@ optimizer_runs = 200
 remappings = [
     "@reactive/=lib/reactive-lib-omni/",
     "forge-std/=lib/forge-std/src/",
+    "v4-core/=lib/v4-core/",
 ]
 
 [fmt]

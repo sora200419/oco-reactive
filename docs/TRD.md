@@ -40,7 +40,13 @@ OrderVault   --OrderCreated/
 
 事件：`OrderCreated`、`OrderCancelled`、`OrderExecuted`（含成交时间戳）。
 
-具体签名在第 1 周核实 v4 接口后定稿并更新本节。
+已存在的执行组件 `V4Swapper`（`src/v4/V4Swapper.sol`，v4 试验产物）：
+| 函数 | 输入 | 谁能调用 |
+|---|---|---|
+| `swapExactIn` | 池子、方向、卖出数量、最小成交量、收款人 | 任何人（卖自己授权的代币） |
+| `unlockCallback` | PoolManager 传回的数据 | 只有 PoolManager |
+
+金库会沿用它的换币流程。`OrderVault` 和 `OcoReactive` 上表中的函数是设计稿，具体签名在 Phase 2 实现时定稿并更新本节。v4 的事件格式、正负号和 gas 数据见 `docs/IMPLEMENTATION-PLAN.md` 的"v4 试验结论"。
 
 ## 第三方服务和密钥
 - RPC：Lasna `https://lasna-rpc.rnk.dev/`；Unichain Sepolia 公共 RPC。地址放 `.env`。

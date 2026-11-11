@@ -4,3 +4,6 @@
 [submodule "lib/reactive-lib-omni"]
 	path = lib/reactive-lib-omni
 	url = https://github.com/Reactive-Network/reactive-lib-omni
+[submodule "lib/v4-core"]
+	path = lib/v4-core
+	url = https://github.com/Uniswap/v4-core

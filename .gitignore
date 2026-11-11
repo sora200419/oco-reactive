@@ -13,5 +13,10 @@ broadcast/**/*.recovery.lock
 # Node
 node_modules/
 
+# Local AI-assistant tooling, not part of the project
+.claude/
+CLAUDE.md
+FAILURES.md
+
 # Local switches
 .vibe-gate-off
