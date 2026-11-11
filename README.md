@@ -3,10 +3,20 @@
 On-chain OCO (one-cancels-the-other) stop-loss / take-profit orders for Uniswap v4, executed by a
 Reactive Omni contract. Entry for the Reactive Omni Buildathon, track "Every Second Counts".
 
-**Status: work in progress.** What exists today is the minimal loop below. The order vault and the
-OCO reactive contract are not written yet; see `docs/IMPLEMENTATION-PLAN.md`.
+**Status: work in progress.** What exists today is the minimal loop and the Uniswap v4 swap spike
+described below. The order vault and the OCO reactive contract are not written yet; see
+`docs/IMPLEMENTATION-PLAN.md`.
 
 ## What is in the repo now
+
+### Uniswap v4 swap spike
+
+`src/v4/V4Swapper.sol` executes an exact-input ERC-20 swap directly against the v4 PoolManager, with
+no router. It is the execution path the order vault will use. `test/V4SwapperFork.t.sol` runs it
+against the real PoolManager on a pinned-block fork of Unichain Sepolia and pins down what a
+subscriber sees in the `Swap` event. It has not been broadcast to a testnet yet.
+
+### Minimal loop
 
 A minimal origin event → reactive transaction → callback loop, used to prove the pipeline end to end
 before the real contracts are layered on top.
@@ -30,10 +40,18 @@ callback took 2 seconds. Addresses and the three transaction hashes are in
 Requires [Foundry](https://getfoundry.sh/).
 
 ```bash
-git clone --recurse-submodules <this repo>
+git clone https://github.com/sora200419/oco-reactive.git
+cd oco-reactive
+git submodule update --init
 forge build
 forge test -vv
 ```
+
+Initialise the submodules without `--recursive`: only the three top-level dependencies are needed,
+and the nested ones inside them are large and not used by this project.
+
+The fork tests read chain state from the public Unichain Sepolia RPC (`https://sepolia.unichain.org`)
+and fail if it is unreachable. Set `ORIGIN_RPC` to use another endpoint.
 
 ## Deploy the minimal loop (testnets only)
 
