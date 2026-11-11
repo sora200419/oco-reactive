@@ -1,0 +1,17 @@
+# Foundry build output
+out/
+cache/
+broadcast/*/31337/
+broadcast/**/dry-run/
+broadcast/**/*.recovery.lock
+
+# Secrets: never commit
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+
+# Local switches
+.vibe-gate-off

@@ -1,0 +1,19 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+solc = "0.8.30"
+# Uniswap v4 needs Cancun (transient storage). Lasna support for Cancun
+# opcodes is confirmed on first testnet deployment, see docs/IMPLEMENTATION-PLAN.md.
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+remappings = [
+    "@reactive/=lib/reactive-lib-omni/",
+    "forge-std/=lib/forge-std/src/",
+]
+
+[fmt]
+line_length = 110
