@@ -22,31 +22,75 @@ OrderVault   --OrderCreated/
 - 部署顺序：先 `OcoReactive`，再 `OrderVault`（构造时传 callback proxy 和 reactive 地址，不可改），最后在 `OcoReactive` 上回填金库地址。
 
 ## API / 对外接口
-`OrderVault`：
+价格一律用"归一化 tick"表示：卖 currency0 的订单用池子的 tick，卖 currency1 的订单用它的相反数。这样数值越大对卖方越有利，止损、止盈、移动止损的判断在两个方向上是同一套逻辑。
+
+`OrderVault`（`src/OrderVault.sol`，Unichain Sepolia，一个金库只服务一个已初始化、不带 hooks 的池子）：
 | 函数 | 输入 | 谁能调用 |
 |---|---|---|
-| `createOrder` | 池子、卖出数量、止损 tick、止盈 tick、移动止损距离、过期时间戳 | 任何人（为自己下单） |
-| `cancelOrder` | 订单 id | 订单所有者 |
-| `reclaimExpired` | 订单 id | 订单所有者 |
-| `execute` | reactive 地址（由网络填入）、订单 id、触发方向 | 只有 callback proxy，且来源必须是指定的 reactive 合约 |
-| `coverDebt` | 无 | 任何人 |
+| `createOrder(OrderParams)` | 方向、卖出数量、是否设止损及其 tick、是否设止盈及其 tick、移动止损距离、绝对最低成交量、相对现价的最大滑点（基点）、过期时间戳 | 任何人（为自己下单，需先授权代币） |
+| `cancelOrder(id)` | 订单 id | 订单所有者 |
+| `reclaimExpired(id)` | 订单 id | 任何人，但只能在订单过期之后；代币退给所有者 |
+| `execute(reactive, id, side, nThreshold)` | reactive 地址（由网络填入）、订单 id、触发方向（1 止损、2 止盈、3 移动止损、4 过期）、移动止损的触发位 | 只有 callback proxy，且来源必须是指定的 reactive 合约 |
+| `getOrder(id)`、`poolKey()`、`normalizedTick(方向)`、`activeOrdersOf(地址)` | 只读 | 任何人 |
+| `coverDebt()` | 无 | 任何人 |
+| `withdraw(amount)` | 取回合约里用于付 callback 费的原生币；碰不到托管的代币 | 部署者 |
 
-`OcoReactive`：
+事件：`OrderCreated`、`OrderCancelled`、`OrderExpired`、`OrderExecuted`（含成交时间戳）、`OrderExecutionFailed`（含失败原因）。
+
+下单时的限制：
+- 每个地址最多 3 张活跃订单（`MAX_ORDERS_PER_OWNER`），全库最多 10 张（`MAX_ACTIVE_ORDERS`）。
+- 过期时间必须在将来，且不超过 30 天（`MAX_ORDER_DURATION`）。
+- 止损位必须低于现价、止盈位必须高于现价（按归一化 tick）。
+- 代币必须足额到账，不支持转账扣费的代币。
+
+`execute` 的行为约定：
+- 订单已成交、已取消或已过期关闭时直接返回，不 revert，不产生事件。
+- 订单已过期时不卖出，改为关闭订单并把代币退给所有者。
+- 价格已不在触发位、或 swap 失败（滑点超限、流动性不足）时，订单保持活跃，发出 `OrderExecutionFailed`。
+- 成交是整笔的，不做部分成交。
+- 滑点保护取两者中较大的一个：所有者设的绝对最低成交量；按成交前的现价、先扣掉池子手续费、再留出 `maxSlippageBps` 算出的数量。
+- 移动止损的最高价只存在于 reactive 合约里，所以触发位由 callback 带过来。金库对它做三项限制：不低于"下单时的价格减去距离"、低于止盈位、当前价格确实不高于它。这三项限制防的是错误的触发位，**防不住价格被人为拉高再砸回**：那种情况下触发位是真实的，订单会按当时的价格卖出。
+
+`OcoReactive`（`src/OcoReactive.sol`，Lasna）：
 | 函数 | 输入 | 谁能调用 |
 |---|---|---|
-| `react` | `LogRecord` | 只有系统合约 |
-| `setVault` | 金库地址 | owner，只能设一次 |
-| `coverDebt` | 无 | 任何人 |
+| `react(LogRecord)` | 池子的 `Swap` 或金库的五种事件 | 只有系统合约 |
+| `setVault(vault)` | 金库地址；同时订阅金库的五种事件 | owner，只能设一次 |
+| `activeIds()`、`getTracked(id)`、`closed(id)`、`lastSwapPos()` | 只读 | 任何人 |
+| `coverDebt()` | 无 | 任何人 |
+| `withdraw(amount)` | 取回合约里的原生币 | owner |
 
-事件：`OrderCreated`、`OrderCancelled`、`OrderExecuted`（含成交时间戳）。
+订阅：构造时订阅 PoolManager 的 `Swap`（topic1 固定为 poolId）；`setVault` 时订阅金库的 `OrderCreated`、`OrderCancelled`、`OrderExpired`、`OrderExecuted`、`OrderExecutionFailed`。
 
-已存在的执行组件 `V4Swapper`（`src/v4/V4Swapper.sol`，v4 试验产物）：
+对事件迟到和乱序的处理（"位置"指事件在源链上的区块号加日志序号）：
+- 位置不晚于"已处理过的最新一笔 swap"的 swap 一律忽略：迟到的旧 swap 不代表现在的价格，重复投递的同一笔 swap 也只算一次。
+- 每张订单记下创建事件的位置，位置更早的 swap 对这张订单不起作用，不会移动它的最高价，也不会触发它。
+- 反过来，如果创建事件比之后的 swap 晚到，那些已经被处理掉的 swap 不会再补算给这张订单，移动止损的最高价可能低于真实值。
+- 每张订单还记下最近一次失败事件的位置，同一个失败事件重复投递或迟到时只处理一次。
+- 金库报告过关闭（成交、取消、过期）的订单 id 被记入 `closed`，之后再收到它的创建事件也不会重新跟踪。订单 id 不会重复使用。
+- 跟踪上限是金库上限的两倍，这样"新订单的创建事件先到、旧订单的关闭事件后到"时新订单仍有位置。真的满了会发出 `OrderDropped`。
+
+限额和计时（都是合约里的常量）：
+| 常量 | 值 | 作用 |
+|---|---|---|
+| 金库 `MAX_ACTIVE_ORDERS` | 10 | 全库活跃订单上限 |
+| 金库 `MAX_ORDERS_PER_OWNER` | 3 | 单个地址的活跃订单上限 |
+| 金库 `MAX_ORDER_DURATION` | 30 天 | 订单最长有效期 |
+| reactive `MAX_TRACKED_ORDERS` | 20 | 跟踪上限，金库上限的两倍 |
+| `MAX_TRIGGERS_PER_REACT` | 4 | 一笔 reactive 交易最多请求的 callback 数，防止超过 900,000 gas 上限；剩下的订单由池子里的下一次 swap 触发，而金库每卖出一笔本身就是一次 swap |
+| `PENDING_TIMEOUT` | 120 秒 | 触发后等金库回音的时间，期间不重复触发 |
+| `RETRY_COOLDOWN` | 30 秒 | 金库报告失败后多久可以再试 |
+| `MAX_ATTEMPTS` / `ATTEMPT_WINDOW` | 5 次 / 1 小时 | 一张订单在一个窗口内最多被触发的次数。金库回报"价格已不在触发位"的那次不计数；swap 失败和没有回音的计数。窗口过后重新计数，所以没有订单会被永久停用。过期关闭的请求不受这个限制 |
+| `EXPIRY_GRACE` | 60 秒 | 过期多久后请求关闭订单，用来吸收两条链时钟的差异。请求发出后 reactive 合约就不再跟踪这张订单 |
+| `CALLBACK_GAS_LIMIT` | 1,000,000 | 每个 callback 请求的 gas 上限 |
+
+`V4Swapper`（`src/v4/V4Swapper.sol`）：金库通过它换币。
 | 函数 | 输入 | 谁能调用 |
 |---|---|---|
 | `swapExactIn` | 池子、方向、卖出数量、最小成交量、收款人 | 任何人（卖自己授权的代币） |
 | `unlockCallback` | PoolManager 传回的数据 | 只有 PoolManager |
 
-金库会沿用它的换币流程。`OrderVault` 和 `OcoReactive` 上表中的函数是设计稿，具体签名在 Phase 2 实现时定稿并更新本节。v4 的事件格式、正负号和 gas 数据见 `docs/IMPLEMENTATION-PLAN.md` 的"v4 试验结论"。
+v4 的事件格式、正负号和 gas 数据见 `docs/IMPLEMENTATION-PLAN.md` 的"v4 试验结论"。
 
 ## 第三方服务和密钥
 - RPC：Lasna `https://lasna-rpc.rnk.dev/`；Unichain Sepolia 公共 RPC。地址放 `.env`。
