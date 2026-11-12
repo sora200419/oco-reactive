@@ -115,3 +115,51 @@ moved the price well past the stop level before the callback arrived.
   `OrderCreated` was emitted. The newest processed swap position decodes to block 67639463.
 - `block.timestamp` on Lasna tracks real time.
 - Not measured: a `react()` that triggers several orders at once on the real system contract.
+
+### Full take-profit loop #2
+
+Order 1: sell 100 token0, take-profit at tick -250, stop at -800, created at tick -415. Then 1,000
+token1 were sold into the pool to push the price up through the take-profit.
+
+| Leg | Chain | Block | Block timestamp | Tx |
+|---|---|---|---|---|
+| 0. Order created (`createOrder`) | Unichain Sepolia | 67641589 | n/a | `0xe17321882f0025f56e11d3f5e0b267c5860ff9d764cce9283b2bbf1258abdba0` |
+| 1. Price pushed through the take-profit (`Swap` event, tick -212) | Unichain Sepolia | 67641616 | 1794494044 | `0x85fa6cbb6217c4f407964d9a18cb5f70dbff6901f4877afe17c73cfa52c3af2b` |
+| 2. Reactive transaction (take-profit, level -250) | Reactive Lasna | 8171393 | 1794494043 | `0xc5226df2431bb28c6218a00e96d27037f37f469713c709cc4a8a4f3a63ffbcbc` |
+| 3. Callback: vault sells the order (`OrderExecuted`, side 2) | Unichain Sepolia | 67641618 | 1794494046 | `0xc676b454087ff03bf086b6c2dd862b4ab9cdfc88a32f33da1b7ecb756be91a0e` |
+
+Result: the order sold 100 token0 for 97.514 token1 at tick -212, above its creation price of tick
+-415. Order closed, nothing left in the vault, the reactive contract stopped tracking it.
+
+**Swap to callback: 2 seconds, 2 Unichain Sepolia blocks.** `react()` used 112,501 gas.
+
+### Full trailing-stop loop #3
+
+Order 2: sell 100 token0 with only a trailing stop, distance 100 ticks, created at tick -232. Then
+800 token1 were sold to push the price up to tick -71 (a new peak, no sale), and 1,000 token0 were
+sold to push it down to tick -269.
+
+| Leg | Chain | Block | Block timestamp | Tx |
+|---|---|---|---|---|
+| 0. Order created (`createOrder`) | Unichain Sepolia | 67641792 | n/a | `0x93abce97970052182b0f87ae2ecd7fb213f9855f3dfe6a646aa75c904d00fc97` |
+| 1a. Price rises to a new peak (`Swap` event, tick -71); no trigger | Unichain Sepolia | 67641820 | 1794494248 | `0xb20c634accd87887aa8f08c6401307d634845bacf3ff3f07ee06ffba0d98d87e` |
+| 1b. Price falls through peak minus 100 (`Swap` event, tick -269) | Unichain Sepolia | 67641851 | 1794494279 | `0x2c98dfeb07448eed2407d2c5763ce6ae2749e6531d0a36b99b4d2fdade6c8f4e` |
+| 2. Reactive transaction (trailing stop, level -171) | Reactive Lasna | 8171611 | 1794494279 | `0x6c58c2a402ea86993396d120078edc1a3682889b3066c42d32ea0922eda8df75` |
+| 3. Callback: vault sells the order (`OrderExecuted`, side 3) | Unichain Sepolia | 67641854 | 1794494282 | `0x255c6af5f7132a4b683a72f385ad6a98017ab20c4cd241dc3441f3bc3c26f7f2` |
+
+The reactive contract's `Triggered` event reports the level it used: -171, exactly the peak of -71
+minus the distance of 100, so the peak was tracked on Reactive Network from the rising swap. That
+rising swap produced no `Triggered` event (the only two in the window are loops #2 and #3).
+
+Result: the order sold 100 token0 for 96.963 token1 at tick -269. That is below its creation price
+of -232: the single 1,000-token sale pushed the price far past the trailing level (-171) before the
+callback ran, and the vault sells at the market price at that moment. A smaller push would have
+sold closer to the level.
+
+**Swap to callback: 3 seconds, 3 Unichain Sepolia blocks.** `react()` used 113,108 gas.
+
+### Cost of the three demos
+
+The reactive contract's balance went from 1.000 lREACT to 0.9329 after loop #1, 0.8653 after loop
+#2 and 0.7846 after loop #3 (loop #3 has one extra swap): about 0.067 to 0.081 lREACT per demo.
+The vault paid about 0.0000012 ETH in callback fees for all three. Neither contract has debt.
