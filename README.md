@@ -53,6 +53,141 @@ and the nested ones inside them are large and not used by this project.
 The fork tests read chain state from the public Unichain Sepolia RPC (`https://sepolia.unichain.org`)
 and fail if it is unreachable. Set `ORIGIN_RPC` to use another endpoint.
 
+## Deploy the OCO system (testnets only)
+
+The commands below are for a bash shell (on Windows use Git Bash, not PowerShell), run from the
+repo root, all in **one** terminal window. Every script refuses to run if the connected chain id
+is not the expected one.
+
+### What you need
+
+- A Foundry keystore for a testnet-only wallet (`cast wallet import deployer --interactive`).
+- Unichain Sepolia ETH: deployment and callbacks cost very little there; 0.005 ETH is plenty.
+- Lasna lREACT, **at least 1.7 lREACT in the wallet before step 3** with the default settings.
+  Step 3 sends `OCO_REACTIVE_FUNDING_WEI` (1 lREACT) into the contract to pay for its reactive
+  transactions, and the network also checks that the wallet can cover the gas limit at the
+  maximum fee (about 0.6 lREACT more), although only about 0.25 lREACT of that is spent (measured:
+  the deployment cost about 0.22 lREACT). Step 6
+  (`setVault`) needs up to about 0.05 lREACT more (measured: about 0.008). Get lREACT by sending Sepolia ETH to the faucet contract listed
+  in the [Reactive docs](https://dev.reactive.network/reactive-mainnet) (1 ETH gives 100 lREACT).
+- After deployment, every swap in the pool and every vault event costs the reactive contract
+  lREACT at a 100 gwei gas price. Measured: one stop-loss demo (order, swap, the vault's own
+  sale, confirmation) used about 0.067 lREACT, so about 0.017 per reactive transaction on average.
+
+Check the balances first:
+
+```bash
+cast balance <your address> --ether --rpc-url https://lasna-rpc.rnk.dev/
+```
+
+### Steps
+
+1. Load the public settings, **once**. `.env.example` has empty placeholders for the addresses
+   you are about to deploy, so loading it again later would erase them.
+
+   ```bash
+   set -a; source ./.env.example; set +a
+   ```
+
+2. Pool, tokens, liquidity and swapper on Unichain Sepolia. `--slow` sends the transactions one
+   at a time. The script ends by printing five `export ...` lines: run them in the same window,
+   and keep a copy somewhere (they are also recorded in
+   `broadcast/Oco.s.sol/1301/run-latest.json`). If the output does not end with
+   `ONCHAIN EXECUTION COMPLETE & SUCCESSFUL`, do not use the printed lines; run this step again
+   from the start, which costs almost nothing.
+
+   ```bash
+   forge script script/Oco.s.sol:DeployPool --rpc-url $ORIGIN_RPC --account deployer --broadcast --slow
+   ```
+
+3. Reactive contract on Lasna, funded with `OCO_REACTIVE_FUNDING_WEI`. It refuses to run if the
+   exported `POOL_ID` does not match the token addresses. Run the `export OCO_REACTIVE_ADDR=...`
+   line it prints.
+
+   ```bash
+   forge script script/Oco.s.sol:DeployOcoReactive --rpc-url $REACTIVE_RPC --account deployer --broadcast
+   ```
+
+4. Order vault on Unichain Sepolia, funded with `VAULT_FUNDING_WEI`. Run the
+   `export ORDER_VAULT_ADDR=...` line it prints.
+
+   ```bash
+   forge script script/Oco.s.sol:DeployOrderVault --rpc-url $ORIGIN_RPC --account deployer --broadcast
+   ```
+
+5. Before wiring, check the vault really belongs to this reactive contract and this pool. The
+   first command must print the same address as `echo $OCO_REACTIVE_ADDR`, the second the same
+   value as `echo $POOL_ID`. Do not continue if either differs.
+
+   ```bash
+   cast call $ORDER_VAULT_ADDR "_CALLBACK_SENDER()(address)" --rpc-url $ORIGIN_RPC
+   ```
+
+   ```bash
+   cast call $ORDER_VAULT_ADDR "POOL_ID()(bytes32)" --rpc-url $ORIGIN_RPC
+   ```
+
+6. Wire the reactive contract to the vault. This can be done once and cannot be undone.
+
+   ```bash
+   cast send $OCO_REACTIVE_ADDR "setVault(address)" $ORDER_VAULT_ADDR --rpc-url $REACTIVE_RPC --chain 5318007 --account deployer
+   ```
+
+### Run a stop-loss
+
+The stop must be below the current tick and the take-profit above it. The pool starts at tick 0;
+every demo moves it, so read it before each order:
+
+```bash
+cast call $ORDER_VAULT_ADDR "normalizedTick(bool)(int24)" true --rpc-url $ORIGIN_RPC
+```
+
+Place an order selling 100 token0 with a stop 120 ticks below and a take-profit 120 ticks above
+a current tick of 0. A tick of 0 leaves that level unset, so a level at exactly tick 0 cannot be
+set this way. The script always sells token0, uses a 5% slippage bound, and refuses values that
+do not fit their field.
+
+```bash
+ORDER_AMOUNT_WEI=100000000000000000000 ORDER_STOP_TICK=-120 ORDER_TP_TICK=120 ORDER_TRAILING=0 ORDER_MIN_OUT_WEI=0 ORDER_LIFETIME_SECONDS=86400 forge script script/Oco.s.sol:PlaceOrder --rpc-url $ORIGIN_RPC --account deployer --broadcast
+```
+
+Push the price down through the stop by selling 2,000 token0:
+
+```bash
+SWAP_ZERO_FOR_ONE=true SWAP_AMOUNT_WEI=2000000000000000000000 forge script script/Oco.s.sol:Swap --rpc-url $ORIGIN_RPC --account deployer --broadcast
+```
+
+A few seconds later the order should be sold. Check it, replacing `0` with the order id PlaceOrder
+printed (ids count up from 0 on each new vault); the third field is the status, where 1 is active
+and 2 is executed:
+
+```bash
+cast call $ORDER_VAULT_ADDR "getOrder(uint256)((address,uint64,uint8,bool,bool,bool,int24,int24,int24,uint24,uint16,uint128,uint128))" 0 --rpc-url $ORIGIN_RPC
+```
+
+### If nothing happens
+
+Debt on either side stops delivery:
+
+```bash
+cast call $SYSTEM_CONTRACT_ADDR "debt(address)(uint256)" $OCO_REACTIVE_ADDR --rpc-url $REACTIVE_RPC
+```
+
+```bash
+cast call $DESTINATION_CALLBACK_PROXY_ADDR "debt(address)(uint256)" $ORDER_VAULT_ADDR --rpc-url $ORIGIN_RPC
+```
+
+The reactive contract records the position of the newest swap it has processed. If this stays 0
+after a swap, swap events are not reaching it or are being ignored:
+
+```bash
+cast call $OCO_REACTIVE_ADDR "lastSwapPos()(uint128)" --rpc-url $REACTIVE_RPC
+```
+
+If you opened a new terminal and lost the exported addresses, copy them from
+`broadcast/Oco.s.sol/1301/run-latest.json` (steps 2 and 4) and
+`broadcast/Oco.s.sol/5318007/run-latest.json` (step 3).
+
 ## Deploy the minimal loop (testnets only)
 
 The commands below are for a bash shell (on Windows use Git Bash, not PowerShell).
