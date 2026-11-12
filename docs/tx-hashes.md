@@ -158,8 +158,61 @@ sold closer to the level.
 
 **Swap to callback: 3 seconds, 3 Unichain Sepolia blocks.** `react()` used 113,108 gas.
 
+### Cancellation (order 3), 2026-11-12
+
+Order 3: sell 20 token0, stop at -700, created at tick -289, then cancelled by its owner.
+
+| Step | Chain | Block | Tx |
+|---|---|---|---|
+| Order created | Unichain Sepolia | 67642332 | `0xe4f273263d7e90d24689db9262c421e3923435ab8e4c2b39ce27be1b9d594358` |
+| `cancelOrder(3)`, 20 token0 refunded | Unichain Sepolia | 67642373 | `0xade1e3ea294c97adff19bc546a0eeb7895937978b4db8021a27846736203f22e` |
+
+The reactive contract stopped tracking the order on its own when it received `OrderCancelled`
+(`closed(3)` true, `activeIds()` without 3). No callback was involved.
+
+### Expiry through the network (order 4), 2026-11-12
+
+Order 4: sell 20 token0, stop at -700, lifetime 150 seconds (expiry 1794494963). A 1-token swap
+192 seconds after the expiry gave the reactive contract its next chance to look.
+
+| Leg | Chain | Block | Block timestamp | Tx |
+|---|---|---|---|---|
+| 0. Order created | Unichain Sepolia | 67642400 | n/a | `0xc10d998002a68b31033d26495b1524c6307ba60932e5b626a67dbb3737f45a0f` |
+| 1. Any swap in the pool | Unichain Sepolia | 67642727 | 1794495155 | `0x4e7f93ba7586020e0824b5592afd73b9cc090ffb8dc72bdf959f7eab851ce472` |
+| 2. Reactive transaction (side 4, expiry) | Reactive Lasna | 8172427 | 1794495154 | `0x08d4c3a2f9cb1fe96e2035c1f991b6a01b06417dec9973ec4363f7babd8f9777` |
+| 3. Callback: vault closes the order and refunds (`OrderExpired`) | Unichain Sepolia | 67642729 | n/a | `0x92230224b3f3ceba9a0289f07d0e24aea570780da4791b9ba5388f6e419f21db` |
+
+Result: order status Expired, 20 token0 back with the owner, the reactive contract stopped
+tracking it. The order was never sold.
+
+### Three orders triggered by one swap (orders 5, 6, 7), 2026-11-12
+
+Three orders from the same wallet, each selling 50 token0 with a stop at -500, created at tick -289.
+One sale of 1,500 token0 pushed the price to about tick -581. One wallet can hold at most three
+active orders, so this is the most one wallet can trigger at once; the cap of four triggers per
+reactive transaction is covered by unit tests only.
+
+| Leg | Chain | Block | Tx |
+|---|---|---|---|
+| Orders 5, 6, 7 created | Unichain Sepolia | 67643193, 67643213, 67643251 | `0xdeefe7cbbc176916e38c0950d70432810bb704fe73a70e94d5b119c9501bc57c`, `0x7cce0092af9bba41f6677bb0054b420d3eb743e1a0236b3576331fba063abcc1`, `0x766bd4de61d2c0e97fa59290d5905a8f5b40e351e4365414989c4e932ec760de` |
+| Swap through all three stops (ts 1794495713) | Unichain Sepolia | 67643285 | `0x319c3deff26dd0f4732b5f16e24a7df45137266cfa02d4b6b1eccaa0b9c22206` |
+| One reactive transaction triggering all three (ts 1794495712) | Reactive Lasna | 8172947 | `0xb0f59b422bc09b0c89dbfc505757526b88eb6fe88a3b7f7169670e5e39f00c4d` |
+| Callback for order 5, filled at tick -581 | Unichain Sepolia | 67643287 | `0xb0ae2bb87f46b1ccef0327c3e97cb81282bdbe1282945359c9073eb2f28428d5` |
+| Callback for order 6, filled at tick -591 | Unichain Sepolia | 67643288 | `0x445e5f90bd19c39fcf39841e4ef4ecfc38c96e7eaa5ddeff934a24cb04de6fe1` |
+| Callback for order 7, filled at tick -601 | Unichain Sepolia | 67643289 | `0x7c82189908082fdcca28cc2da8427612da8b8f7761c8fbdf2a3f3e31f8b43d06` |
+
+- The reactive transaction that triggered three orders used **171,802 gas** on the real system
+  contract, against 112,501 to 129,712 for one trigger: roughly 30,000 gas per extra trigger. At
+  that rate four triggers stay near 200,000 gas, well under the 900,000 cap.
+- The three callbacks landed in three consecutive blocks, 2, 3 and 4 seconds after the swap. Each
+  sale moved the price, so each order filled about 10 ticks lower than the one before.
+- All three orders executed; nothing was left in the vault, and the reactive contract tracks
+  nothing.
+
 ### Cost of the three demos
 
 The reactive contract's balance went from 1.000 lREACT to 0.9329 after loop #1, 0.8653 after loop
 #2 and 0.7846 after loop #3 (loop #3 has one extra swap): about 0.067 to 0.081 lREACT per demo.
 The vault paid about 0.0000012 ETH in callback fees for all three. Neither contract has debt.
+The cancellation and expiry tests then brought it to 0.6907, and the three-order test (three
+creations, one swap, three sales, three confirmations) to 0.5122 lREACT.
