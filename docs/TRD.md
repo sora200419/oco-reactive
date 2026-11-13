@@ -5,7 +5,7 @@
 - **Reactive 侧**：Reactive Omni（Lasna 测试网，Chain ID 5318007）。赛道要求；约 1 秒出块、即时最终性。基类来自 `Reactive-Network/reactive-lib-omni` v0.1.0（不是旧的 `reactive-lib`）。
 - **源链和目标链**：Unichain Sepolia（Chain ID 1301）。赛道指定链，1 秒出块，有官方 Uniswap v4 部署。
 - **DEX**：Uniswap v4。官方 demo 已做过 V2 止损，v4 是差异点；`Swap` 事件按 poolId 索引，适合精确订阅。
-- **延迟工具**：TypeScript + viem（Node 22）。
+- **延迟工具**：Node 22 的纯 JavaScript（`tools/latency/`），读链用内置 `fetch` 直接发 JSON-RPC，发交易调用 Foundry 的 `cast`。原计划用 TypeScript + viem，改掉的原因：不引入任何 npm 依赖，签名沿用已有的 Foundry keystore，不需要另一套私钥处理。
 - **网页**（可砍）：单页静态页面 + viem，不需要后端。
 - **数据库**：无。状态全在链上。
 - **部署**：Foundry 脚本；合约在 Sourcify 验证。

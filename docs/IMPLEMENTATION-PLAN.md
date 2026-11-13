@@ -108,7 +108,8 @@
 - 补上 v4 试验留下的"真实 swap 交易"哈希。
 
 ## Phase 3：延迟、加固、界面（11/24–11/30）
-- [ ] `tools/latency` 脚本，跑 30 轮以上。验证：产出 CSV 和 p50 / p95。
+- [x] `tools/latency` 工具（11/13）：`run` 模式发真实交易逐轮测量，`replay` 模式从已有的 swap 交易回算。用 replay 回算了测试网上已有的四组链路，块数和哈希与手工记录一致（2、2、3、2 个区块）。测试 `node --test tools/latency/lib.test.mjs tools/latency/round.test.mjs`（含任一步失败后订单都会被取消的测试）。
+- [ ] 跑 30 轮以上，产出 CSV 和 p50 / p95，结果写进 README。
 - [ ] 欠款处理和 gas 上限压测（满额订单）。验证：满额时 `react` gas 低于 900,000。
 - [ ] 最小网页（落后就砍）。
 - [ ] 交 `harness-reviewer` 审查，问题逐条修或给证据。

@@ -188,6 +188,86 @@ If you opened a new terminal and lost the exported addresses, copy them from
 `broadcast/Oco.s.sol/1301/run-latest.json` (steps 2 and 4) and
 `broadcast/Oco.s.sol/5318007/run-latest.json` (step 3).
 
+## Measure latency
+
+`tools/latency/latency.mjs` runs the full loop many times and times it. It needs Node 22 and
+Foundry's `cast`; it has no npm dependencies. It reads the same exported variables as the
+deployment steps above.
+
+Each round places a small order (10 token0 plus 7 wei; the odd amount marks the tool's own
+orders) 60 ticks from the current price, waits until the
+reactive contract tracks it, pushes the price through the level with one swap (600 tokens), and
+records when the reactive transaction and the callback appear. Rounds alternate between stop-loss
+(price pushed down) and take-profit (pushed up) and keep the price within 300 ticks of where the
+run started.
+
+A round that does not end in a sale, for any reason (timeout, RPC failure, a failed transaction,
+Ctrl-C), cancels its order before the next round starts, and the CSV keeps that order's id and
+transaction hashes. If a cancel fails while the order may still be active (including when its
+state cannot be read), or if sending the order fails but the wallet's nonce shows something was
+broadcast, the run stops so the order cannot block later rounds (one wallet may hold at most three
+active orders). Before it starts, the next run cancels active orders of the wallet that carry the
+tool's marker amount; orders placed by hand are left alone, and the run refuses to start if they
+leave no room for its own order. This only works while `LATENCY_ORDER_AMOUNT_WEI` stays the same
+between runs, and it must never be an amount you also use for orders by hand. Ctrl-C once stops after cleaning up the current round; twice
+quits at once. Ctrl-C can also reach a `cast` command that is running; the nonce check above
+covers that case, but how Ctrl-C behaves in Git Bash's terminal has not been tried on a real run.
+
+Settings are bounded: at most 200 rounds, `LATENCY_LEVEL_OFFSET` up to 1000 ticks,
+`LATENCY_ROUND_TIMEOUT_S` up to 600, `LATENCY_POLL_MS` up to 5000.
+
+Before the first round it checks the funds and refuses to start if the reactive contract holds
+less lREACT than the run needs (about 0.08 per round), owes fees, or the vault, the wallet's
+Unichain Sepolia ETH or its test tokens run short. It prints the top-up command when lREACT is
+short.
+
+Two measurements per round:
+
+- **On chain**: swap block to callback block on Unichain Sepolia, as a block count and as
+  block-timestamp seconds. Both ends are on the same chain and the same clock. This is the main
+  number.
+- **Observed**: milliseconds between the tool seeing the swap mined and seeing the reactive
+  transaction on Lasna, and seeing the callback. Every "seen" time comes from polling, so each end
+  is late by up to one poll cycle (a 200 ms sleep plus the RPC round trips), and the difference can
+  be off by about that much in either direction. The largest poll cycle of each round is in the CSV
+  (`maxPollCycleMs`). Rounds where an RPC call had to be retried are marked and left out of the
+  observed statistics, because the backoff would be counted as latency.
+
+Block timestamps are never subtracted across the two chains: their clocks differ by about a second.
+
+Measure loops that already happened (read-only). Each argument is a swap transaction, optionally
+followed by `:orderId`; without an order id the first callback after the swap is used:
+
+```bash
+node tools/latency/latency.mjs replay <swapTx> <swapTx>:<orderId> ...
+```
+
+Run new rounds (sends real transactions). The tool signs with `cast` from your keystore, so it
+needs the keystore password. Read it into the current shell without echoing it; it is passed to
+`cast` on its command line and not written anywhere. While a `cast` command runs, other programs on
+your computer can see that command line. Writing the password to a file for `--password-file`
+would avoid that but would put it on disk instead; for a testnet-only wallet the command line was
+chosen. Clear it afterwards.
+
+```bash
+read -rs OCO_KEYSTORE_PASSWORD && export OCO_KEYSTORE_PASSWORD
+```
+
+```bash
+node tools/latency/latency.mjs run 30
+```
+
+```bash
+unset OCO_KEYSTORE_PASSWORD
+```
+
+Results go to `tools/latency/results/run-<time>.csv` (one row per round, with every transaction
+hash) and a summary `.md` next to it. Tests for the tool:
+
+```bash
+node --test tools/latency/lib.test.mjs tools/latency/round.test.mjs
+```
+
 ## Deploy the minimal loop (testnets only)
 
 The commands below are for a bash shell (on Windows use Git Bash, not PowerShell).
