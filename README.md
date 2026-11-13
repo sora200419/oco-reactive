@@ -333,6 +333,14 @@ CDN: there is no subresource integrity or content security policy, so a compromi
 offer the wallet a harmful transaction to sign. It is meant for testnet tokens only, and the wallet
 shows every transaction before signing.
 
+Rainbow's signing window marks every transaction from this page on Unichain Sepolia as
+"Simulation Failed", including the test-token `mint`, which has no access check and could only
+revert on an arithmetic overflow; all of them were mined successfully. Our reading is that
+Rainbow's preview service does not support this testnet; Rainbow has not confirmed it. The page
+does its own check: before each transaction it asks the wallet to sign, it simulates the call
+against the chain (`simulateContract` in `web/app.js`) and stops with the contract's error if the
+call would fail.
+
 It needs a little Unichain Sepolia ETH for gas and the two test tokens. The tokens are free: the
 page's "Get test tokens" button mints 2,000 of each to the connected wallet. Without the page:
 
