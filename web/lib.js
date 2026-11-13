@@ -10,7 +10,9 @@ export const SIDE_LABEL = ['', 'stop-loss', 'take-profit', 'trailing stop', 'exp
 /** OrderVault limits mirrored for checks before a transaction is sent. */
 export const MAX_TICK = 887_272;
 export const MAX_ORDERS_PER_OWNER = 3;
-export const MAX_LIFETIME_HOURS = 30 * 24;
+export const MAX_LIFETIME_HOURS = 7 * 24;
+/** Smallest order the vault accepts, in base units (10 tokens of an 18-decimal token). */
+export const MIN_ORDER_AMOUNT = 10n * 10n ** 18n;
 
 /**
  * Parses a token amount typed by a person into base units (18 decimals by default).
@@ -58,6 +60,7 @@ function optionalTicks(name, text) {
 export function buildOrder(form, currentTick, nowSeconds) {
   if (!Number.isInteger(currentTick)) throw new Error('Current price not loaded yet.');
   const amountIn = parseAmount(form.amount);
+  if (amountIn < MIN_ORDER_AMOUNT) throw new Error('Amount must be at least 10 tokens.');
   const stopBelow = optionalTicks('Stop-loss distance', form.stopBelow);
   const tpAbove = optionalTicks('Take-profit distance', form.tpAbove);
   const trailing = optionalTicks('Trailing distance', form.trailing) ?? 0;

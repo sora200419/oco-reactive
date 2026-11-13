@@ -101,11 +101,11 @@
     <h2 id="h-order">Place an order (sell token0)</h2>
     <form id="order-form" novalidate>
       <div class="fields">
-        <div><label for="f-amount">Amount of token0 to sell</label><input id="f-amount" inputmode="decimal" value="10" autocomplete="off"></div>
+        <div><label for="f-amount">Amount of token0 to sell (at least 10)</label><input id="f-amount" inputmode="decimal" value="10" autocomplete="off"></div>
         <div><label for="f-stop">Stop-loss: ticks below now</label><input id="f-stop" inputmode="numeric" value="60" placeholder="empty = none"></div>
         <div><label for="f-tp">Take-profit: ticks above now</label><input id="f-tp" inputmode="numeric" value="60" placeholder="empty = none"></div>
         <div><label for="f-trail">Trailing distance (ticks)</label><input id="f-trail" inputmode="numeric" placeholder="empty = off"></div>
-        <div><label for="f-life">Lifetime (hours)</label><input id="f-life" inputmode="numeric" value="24"></div>
+        <div><label for="f-life">Lifetime (hours, up to 168)</label><input id="f-life" inputmode="numeric" value="24"></div>
       </div>
       <p class="small muted" id="levels-preview"></p>
       <button type="submit" id="place" disabled>Connect a wallet first</button>

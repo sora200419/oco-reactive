@@ -64,7 +64,10 @@ test('buildOrder rejects what the vault would reject', () => {
   assert.throws(() => buildOrder({ ...form, stopBelow: '-5' }, 0, 0), /whole number/);
   assert.throws(() => buildOrder({ ...form, tpAbove: '10' }, MAX_TICK - 5, 0), /tick range/);
   assert.throws(() => buildOrder({ ...form, lifetimeHours: '0' }, 0, 0), /Lifetime/);
-  assert.throws(() => buildOrder({ ...form, lifetimeHours: '721' }, 0, 0), /Lifetime/);
+  assert.throws(() => buildOrder({ ...form, lifetimeHours: '169' }, 0, 0), /Lifetime/);
+  assert.equal(buildOrder({ ...form, lifetimeHours: '168' }, 0, 0).expiry, 168n * 3600n);
+  assert.throws(() => buildOrder({ ...form, amount: '9.999999999999999999' }, 0, 0), /at least 10/);
+  assert.equal(buildOrder({ ...form, amount: '10' }, 0, 0).amountIn, 10n * E18);
   assert.throws(() => buildOrder({ ...form, lifetimeHours: '1.5' }, 0, 0), /Lifetime/);
   assert.throws(() => buildOrder(form, undefined, 0), /not loaded/);
 });

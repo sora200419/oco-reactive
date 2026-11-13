@@ -39,7 +39,8 @@ OrderVault   --OrderCreated/
 
 下单时的限制：
 - 每个地址最多 3 张活跃订单（`MAX_ORDERS_PER_OWNER`），全库最多 10 张（`MAX_ACTIVE_ORDERS`）。
-- 过期时间必须在将来，且不超过 30 天（`MAX_ORDER_DURATION`）。
+- 卖出数量至少 10 个代币（`MIN_ORDER_AMOUNT` = 10e18 最小单位；这个池子两种代币都是 18 位小数），不够报 `AmountTooSmall`。
+- 过期时间必须在将来，且不超过 7 天（`MAX_ORDER_DURATION`）。
 - 止损位必须低于现价、止盈位必须高于现价（按归一化 tick）。
 - 代币必须足额到账，不支持转账扣费的代币。
 
@@ -75,7 +76,8 @@ OrderVault   --OrderCreated/
 |---|---|---|
 | 金库 `MAX_ACTIVE_ORDERS` | 10 | 全库活跃订单上限 |
 | 金库 `MAX_ORDERS_PER_OWNER` | 3 | 单个地址的活跃订单上限 |
-| 金库 `MAX_ORDER_DURATION` | 30 天 | 订单最长有效期 |
+| 金库 `MIN_ORDER_AMOUNT` | 10e18 | 最低卖出数量，挡住占名额的灰尘单 |
+| 金库 `MAX_ORDER_DURATION` | 7 天 | 订单最长有效期，占住的名额最多 7 天就会过期腾出 |
 | reactive `MAX_TRACKED_ORDERS` | 20 | 跟踪上限，金库上限的两倍 |
 | `MAX_TRIGGERS_PER_REACT` | 4 | 一笔 reactive 交易最多请求的 callback 数，防止超过 900,000 gas 上限；剩下的订单由池子里的下一次 swap 触发，而金库每卖出一笔本身就是一次 swap |
 | `PENDING_TIMEOUT` | 120 秒 | 触发后等金库回音的时间，期间不重复触发 |

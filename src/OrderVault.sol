@@ -89,8 +89,9 @@ contract OrderVault is AbstractCallback {
     error ExpiryTooFar();
     /// @notice The caller already has `MAX_ORDERS_PER_OWNER` active orders.
     error TooManyOrdersForOwner();
-    /// @notice The order amount is zero.
-    error ZeroAmount();
+    /// @notice The order amount is below `MIN_ORDER_AMOUNT`.
+    /// @param minimum The smallest accepted amount, in the sold token's base units.
+    error AmountTooSmall(uint256 minimum);
     /// @notice The expiry is not in the future.
     error ExpiryInPast();
     /// @notice The order sets no stop, take-profit or trailing stop.
@@ -177,8 +178,12 @@ contract OrderVault is AbstractCallback {
     /// @notice Most orders one address can have active at once, so a single address cannot fill
     ///         the whole book.
     uint256 public constant MAX_ORDERS_PER_OWNER = 3;
-    /// @notice Longest time an order may stay open, so a slot cannot be held forever.
-    uint256 public constant MAX_ORDER_DURATION = 30 days;
+    /// @notice Smallest amount an order may sell, in the sold token's base units (10 tokens of
+    ///         an 18-decimal token, which both tokens of this pool are), so the book cannot be
+    ///         filled with dust orders.
+    uint256 public constant MIN_ORDER_AMOUNT = 10e18;
+    /// @notice Longest time an order may stay open, so a held slot frees up within a week.
+    uint256 public constant MAX_ORDER_DURATION = 7 days;
 
     uint256 internal constant BPS = 10_000;
     uint256 internal constant Q96 = 1 << 96;
@@ -242,7 +247,7 @@ contract OrderVault is AbstractCallback {
     /// @param p_ Order parameters, see `OrderParams`.
     /// @return id Id of the new order.
     function createOrder(OrderParams calldata p_) external nonReentrant returns (uint256 id) {
-        if (p_.amountIn == 0) revert ZeroAmount();
+        if (p_.amountIn < MIN_ORDER_AMOUNT) revert AmountTooSmall(MIN_ORDER_AMOUNT);
         if (p_.expiry <= block.timestamp) revert ExpiryInPast();
         if (p_.expiry > block.timestamp + MAX_ORDER_DURATION) revert ExpiryTooFar();
         if (!p_.useStop && !p_.useTakeProfit && p_.trailingDistance == 0) revert NoTrigger();

@@ -113,10 +113,11 @@ export const VAULT_ABI = [
     ],
   },
   // Errors, so failed simulations explain themselves.
-  ...['HooksNotSupported', 'PoolNotInitialized', 'NotOwner', 'ExpiryTooFar', 'TooManyOrdersForOwner', 'ZeroAmount',
+  ...['HooksNotSupported', 'PoolNotInitialized', 'NotOwner', 'ExpiryTooFar', 'TooManyOrdersForOwner',
     'ExpiryInPast', 'NoTrigger', 'SlippageTooHigh', 'TrailingDistanceTooLarge', 'TickOutOfRange', 'TooManyActiveOrders',
     'TokenTransferFailed', 'NotOrderOwner', 'OrderNotActive', 'NotExpired', 'Reentrancy']
     .map((name) => ({ type: 'error', name, inputs: [] })),
+  { type: 'error', name: 'AmountTooSmall', inputs: [{ name: 'minimum', type: 'uint256' }] },
   { type: 'error', name: 'StopNotBelowPrice', inputs: [{ name: 'nStop', type: 'int24' }, { name: 'nNow', type: 'int24' }] },
   { type: 'error', name: 'TakeProfitNotAbovePrice', inputs: [{ name: 'nTakeProfit', type: 'int24' }, { name: 'nNow', type: 'int24' }] },
   { type: 'error', name: 'IncompleteDeposit', inputs: [{ name: 'received', type: 'uint256' }, { name: 'expected', type: 'uint256' }] },

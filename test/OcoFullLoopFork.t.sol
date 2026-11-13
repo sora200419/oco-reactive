@@ -455,7 +455,7 @@ contract OcoFullLoopForkTest is V4ForkBase {
     function test_review_creationOvertakingACloseIsStillTracked() public {
         address[4] memory users = [alice, bob, carol, dave];
         OrderVault.OrderParams memory p = _order();
-        p.amountIn = 1e18;
+        p.amountIn = uint128(vault.MIN_ORDER_AMOUNT());
         for (uint256 i = 0; i < vault.MAX_ACTIVE_ORDERS(); i++) {
             _place(users[i / 3], p);
         }
@@ -482,7 +482,12 @@ contract OcoFullLoopForkTest is V4ForkBase {
         dust.amountIn = 1;
         dust.stopTick = -887_272;
         dust.useTakeProfit = false;
+        vm.expectRevert(abi.encodeWithSelector(OrderVault.AmountTooSmall.selector, vault.MIN_ORDER_AMOUNT()));
+        vm.prank(bob);
+        vault.createOrder(dust);
 
+        // The smallest order allowed, with the longest life allowed, is still bounded per address.
+        dust.amountIn = uint128(vault.MIN_ORDER_AMOUNT());
         dust.expiry = type(uint64).max;
         vm.expectRevert(OrderVault.ExpiryTooFar.selector);
         vm.prank(bob);

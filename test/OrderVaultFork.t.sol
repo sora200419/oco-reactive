@@ -139,7 +139,12 @@ contract OrderVaultForkTest is V4ForkBase {
     function test_createOrder_validations() public {
         OrderVault.OrderParams memory p = _params();
         p.amountIn = 0;
-        vm.expectRevert(OrderVault.ZeroAmount.selector);
+        vm.expectRevert(abi.encodeWithSelector(OrderVault.AmountTooSmall.selector, 10e18));
+        _create(p);
+
+        p = _params();
+        p.amountIn = 10e18 - 1;
+        vm.expectRevert(abi.encodeWithSelector(OrderVault.AmountTooSmall.selector, 10e18));
         _create(p);
 
         p = _params();
@@ -186,7 +191,7 @@ contract OrderVaultForkTest is V4ForkBase {
 
     function test_createOrder_capsActiveOrdersAcrossOwners() public {
         OrderVault.OrderParams memory p = _params();
-        p.amountIn = 1e18;
+        p.amountIn = uint128(vault.MIN_ORDER_AMOUNT());
         address[4] memory users = [alice, bob, carol, dave];
         // 3 + 3 + 3 + 1 fills the ten slots.
         for (uint256 i = 0; i < vault.MAX_ACTIVE_ORDERS(); i++) {
@@ -207,7 +212,7 @@ contract OrderVaultForkTest is V4ForkBase {
 
     function test_createOrder_capsOrdersPerOwner() public {
         OrderVault.OrderParams memory p = _params();
-        p.amountIn = 1e18;
+        p.amountIn = uint128(vault.MIN_ORDER_AMOUNT());
         uint256 perOwner = vault.MAX_ORDERS_PER_OWNER();
         for (uint256 i = 0; i < perOwner; i++) {
             _create(p);
@@ -224,6 +229,45 @@ contract OrderVaultForkTest is V4ForkBase {
         vault.cancelOrder(0);
         assertEq(vault.activeOrdersOf(alice), perOwner - 1);
         _create(p);
+    }
+
+    /// Review R4: four addresses try to hold all ten slots. Dust orders are refused; the
+    /// smallest allowed orders with the longest allowed life fill the book, but only for 7 days,
+    /// after which anyone can close them and trading resumes.
+    function test_r4_bookFillersAreRefusedOrExpireWithinAWeek() public {
+        assertEq(vault.MIN_ORDER_AMOUNT(), 10e18, "10 tokens, owner's 11/14 decision");
+        assertEq(vault.MAX_ORDER_DURATION(), 7 days, "7 days, owner's 11/14 decision");
+
+        address[4] memory users = [alice, bob, carol, dave];
+        OrderVault.OrderParams memory p = _params();
+        p.useTakeProfit = false;
+        p.stopTick = -887_200; // a stop that will never be reached
+        p.amountIn = 1e18;
+        vm.expectRevert(abi.encodeWithSelector(OrderVault.AmountTooSmall.selector, 10e18));
+        vm.prank(bob);
+        vault.createOrder(p);
+
+        p.amountIn = uint128(vault.MIN_ORDER_AMOUNT());
+        p.expiry = uint64(T0 + vault.MAX_ORDER_DURATION());
+        for (uint256 i = 0; i < vault.MAX_ACTIVE_ORDERS(); i++) {
+            vm.prank(users[i / 3]);
+            vault.createOrder(p);
+        }
+        vm.expectRevert(OrderVault.TooManyActiveOrders.selector);
+        _create(_params());
+
+        vm.warp(T0 + 7 days + 1);
+        address stranger = address(0xBEEF);
+        vm.prank(stranger);
+        vault.reclaimExpired(0);
+        assertEq(uint8(_status(0)), uint8(OrderVault.Status.Expired));
+        assertEq(token0.balanceOf(alice), 1_000e18 - 2 * 10e18, "the reclaimed order went back to its owner");
+
+        OrderVault.OrderParams memory fresh = _params();
+        fresh.expiry = uint64(block.timestamp + 1 days);
+        vm.prank(dave);
+        vault.createOrder(fresh);
+        assertEq(vault.activeOrderCount(), vault.MAX_ACTIVE_ORDERS());
     }
 
     function test_ownerQuota_isReleasedOnExecutionAndExpiry() public {

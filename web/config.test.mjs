@@ -60,3 +60,14 @@ test('event signatures in the ABIs match the contracts', () => {
   assert.equal(sig(VAULT_ABI, 'OrderExecutionFailed'), 'OrderExecutionFailed(uint256,uint8,bytes)');
   assert.equal(sig(REACTIVE_ABI, 'Triggered'), 'Triggered(uint256,uint8,int24,int24)');
 });
+
+test("the page's order limits match the vault's constants", async () => {
+  const { MIN_ORDER_AMOUNT, MAX_LIFETIME_HOURS, MAX_ORDERS_PER_OWNER } = await import('./lib.js');
+  const src = readFileSync(new URL('../src/OrderVault.sol', import.meta.url), 'utf8');
+  const constant = (name) => src.match(new RegExp(`constant ${name} = ([^;]+);`))?.[1];
+  assert.equal(constant('MIN_ORDER_AMOUNT'), '10e18');
+  assert.equal(MIN_ORDER_AMOUNT, 10n * 10n ** 18n);
+  assert.equal(constant('MAX_ORDER_DURATION'), '7 days');
+  assert.equal(MAX_LIFETIME_HOURS, 7 * 24);
+  assert.equal(constant('MAX_ORDERS_PER_OWNER'), String(MAX_ORDERS_PER_OWNER));
+});
