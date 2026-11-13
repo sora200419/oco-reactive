@@ -17,6 +17,7 @@ node_modules/
 .claude/
 CLAUDE.md
 FAILURES.md
+docs/HANDOFF.md
 
 # Local switches
 .vibe-gate-off
