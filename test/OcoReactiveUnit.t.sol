@@ -797,6 +797,26 @@ contract OcoReactiveUnitTest is Test {
         assertEq(SYSTEM_ADDR.balance - before, 0.25 ether);
     }
 
+    /// The recovery the README describes: with too little balance the debt cannot be paid and
+    /// stays; a plain transfer tops the contract up, then anyone can settle it.
+    function test_coverDebt_underfundedRevertsThenTopUpSettlesIt() public {
+        vm.deal(address(reactive), 0.4 ether);
+        system.setDebt(address(reactive), 1 ether);
+        vm.expectRevert(abi.encodeWithSelector(AbstractPayer.InsufficientFunds.selector, 1 ether, 0.4 ether));
+        reactive.coverDebt();
+        assertEq(SYSTEM_ADDR.balance, 0, "nothing paid");
+
+        vm.deal(stranger, 1 ether);
+        vm.prank(stranger);
+        (bool ok,) = address(reactive).call{value: 0.6 ether}("");
+        assertTrue(ok, "plain transfer accepted");
+
+        vm.prank(stranger);
+        reactive.coverDebt();
+        assertEq(SYSTEM_ADDR.balance, 1 ether, "debt paid");
+        assertEq(address(reactive).balance, 0);
+    }
+
     function test_withdraw_ownerOnly() public {
         vm.deal(address(reactive), 1 ether);
         vm.expectRevert(OcoReactive.NotOwner.selector);
@@ -921,5 +941,148 @@ contract OcoReactiveUnitTest is Test {
         assertEq(system.callbackCount(), 0);
         emit log_named_uint("react gas, 10 orders none triggering", used);
         assertLt(used, 200_000);
+    }
+
+    // ------------------------------------------------- gas at the tracking cap
+
+    /// Real reactive transactions on Lasna, read with `cast receipt <tx> gasUsed`:
+    /// one order tracked and triggered (latency run round 1, 0x19e22f2d…3ce2) and three orders
+    /// tracked and triggered in one transaction (0xb0f59b42…0c4d, see docs/tx-hashes.md).
+    uint256 internal constant REAL_ONE_TRIGGER = 112_444;
+    uint256 internal constant REAL_THREE_TRIGGERS = 171_802;
+    /// Hard cap on a reactive transaction's gas.
+    uint256 internal constant REACTIVE_GAS_CAP = 900_000;
+
+    /// Gas of one `react`, with a system stand-in that emits an event per callback request as the
+    /// real one does. Forge 1.9.0 runs tests with `isolate = true` by default (`forge config`), so
+    /// each external call made by a test is its own transaction: a probe measured 21,543 gas for
+    /// an empty call and 26,784 for a nonzero-to-nonzero write after earlier writes in the same
+    /// test, the price of a cold, clean slot. The figure therefore includes the 21,000 base cost
+    /// and fresh-transaction storage prices; `vm.cool` also makes the contract's address cold, as
+    /// it is when the system calls it. Without isolation the measured figure would drop by about
+    /// the base cost and the calibration's fixed part would absorb it.
+    /// Also returns how many callback requests the call made.
+    function _coldReactGas(IReactive.LogRecord memory log_)
+        internal
+        returns (uint256 used, uint256 requests)
+    {
+        vm.etch(SYSTEM_ADDR, address(new EventSystem()).code);
+        // The stand-in's counter slot holds whatever the bookkeeping mock left there.
+        uint256 countBefore = EventSystem(payable(SYSTEM_ADDR)).callbackCount();
+        vm.cool(address(reactive));
+        vm.cool(SYSTEM_ADDR);
+        vm.prank(SYSTEM_ADDR);
+        uint256 before = gasleft();
+        reactive.react(log_);
+        used = before - gasleft();
+        requests = EventSystem(payable(SYSTEM_ADDR)).callbackCount() - countBefore;
+    }
+
+    /// `count_` stop orders at -120, a first swap that triggers nothing (so the newest-swap marker
+    /// is already set, as on the live contract), then a measured swap that triggers them all.
+    function _measureStops(uint256 count_) internal returns (uint256) {
+        for (uint256 i = 0; i < count_; i++) {
+            _create(i, _stopAndTp());
+        }
+        _swap(0);
+        (uint256 used, uint256 requests) =
+            _coldReactGas(_log(manager, SWAP_T0, uint256(POOL_ID), 3, _swapData(-200)));
+        assertEq(requests, count_, "calibration: every order triggers");
+        return used;
+    }
+
+    /// What the real network adds to this test's measurement: a fixed part (transaction, system
+    /// contract dispatch, cold contract access) and a part per callback request, solved from the
+    /// two real transactions above.
+    function _calibration() internal returns (uint256 fixedPart, uint256 perRequest) {
+        uint256 snap = vm.snapshotState();
+        uint256 one = _measureStops(1);
+        vm.revertToState(snap);
+        uint256 three = _measureStops(3);
+        vm.revertToState(snap);
+        uint256 extraOne = REAL_ONE_TRIGGER - one;
+        uint256 extraThree = REAL_THREE_TRIGGERS - three;
+        perRequest = extraThree > extraOne ? (extraThree - extraOne) / 2 : 0;
+        fixedPart = extraOne - perRequest;
+        emit log_named_uint("test-measured react, 1 order triggering", one);
+        emit log_named_uint("test-measured react, 3 orders triggering", three);
+        emit log_named_uint("real network adds, fixed", fixedPart);
+        emit log_named_uint("real network adds, per callback request", perRequest);
+    }
+
+    /// Fills the tracking cap with orders built by `spec_`, then sends the measured swap and
+    /// checks the predicted real cost against the cap.
+    function _assertCapFits(
+        string memory label_,
+        Spec memory spec_,
+        int24 swapTick_,
+        uint256 warpTo_,
+        uint256 expectedRequests_
+    ) internal {
+        (uint256 fixedPart, uint256 perRequest) = _calibration();
+        uint256 cap = reactive.MAX_TRACKED_ORDERS();
+        for (uint256 i = 0; i < cap; i++) {
+            _create(i, spec_);
+        }
+        assertEq(reactive.activeIds().length, cap, "tracking cap reached");
+        _swap(0);
+        if (warpTo_ != 0) vm.warp(warpTo_);
+
+        (uint256 used, uint256 requests) =
+            _coldReactGas(_log(manager, SWAP_T0, uint256(POOL_ID), 3, _swapData(swapTick_)));
+        assertEq(requests, expectedRequests_, "callback requests");
+
+        uint256 predicted = used + fixedPart + perRequest * expectedRequests_;
+        emit log_named_string("scenario", label_);
+        emit log_named_uint("test-measured react", used);
+        emit log_named_uint("predicted on the real network", predicted);
+        assertLt(predicted, REACTIVE_GAS_CAP, "a full book must fit one reactive transaction");
+    }
+
+    /// Out-of-sample check of the calibration against a real expiry transaction that was not used
+    /// to calibrate: one order tracked, past expiry, one expiry request (Lasna 0x08d4c3a2…7af9777,
+    /// 134,783 gas; docs/tx-hashes.md). What matters for the cap is that the model does not
+    /// under-predict, so that side is held to 10%. It over-predicted this one by 9.8% (148,038);
+    /// the upper bound of 20% only guards against the model drifting far from reality.
+    function test_gasModel_predictsARealExpiryTransaction() public {
+        (uint256 fixedPart, uint256 perRequest) = _calibration();
+        _create(1, _stopAndTp());
+        _swap(0);
+        vm.warp(uint256(EXPIRY) + reactive.EXPIRY_GRACE() + 1);
+        (uint256 used, uint256 requests) =
+            _coldReactGas(_log(manager, SWAP_T0, uint256(POOL_ID), 3, _swapData(0)));
+        assertEq(requests, 1);
+        uint256 predicted = used + fixedPart + perRequest;
+        uint256 real = 134_783;
+        emit log_named_uint("predicted real expiry transaction", predicted);
+        assertGe(predicted, real * 9 / 10, "the model under-predicts a real transaction");
+        assertLe(predicted, real * 12 / 10, "the model is far from a real transaction");
+    }
+
+    /// 20 orders, every trailing peak moves, nothing triggers.
+    function test_gasCap_twentyPeaksMoveNoneTrigger() public {
+        Spec memory s = _trailingOnly();
+        _assertCapFits("20 tracked, all peaks move, none trigger", s, 60, 0, 0);
+    }
+
+    /// 20 orders, every peak moves and a full batch of take-profits triggers.
+    function test_gasCap_twentyPeaksMoveFullBatchTriggers() public {
+        Spec memory s = _trailingOnly();
+        s.useTakeProfit = true;
+        s.nTakeProfit = 50;
+        _assertCapFits("20 tracked, all peaks move, 4 trigger", s, 300, 0, reactive.MAX_TRIGGERS_PER_REACT());
+    }
+
+    /// 20 orders past expiry: a full batch of expiry requests, each untracking its order (the
+    /// costliest path, it rewrites the id list and clears the order), while the rest's peaks move.
+    function test_gasCap_twentyExpiredFullBatch() public {
+        Spec memory s = _trailingOnly();
+        _assertCapFits(
+            "20 tracked, all expired, 4 expiry requests",
+            s,
+            60,
+            uint256(EXPIRY) + reactive.EXPIRY_GRACE() + 1,
+            reactive.MAX_TRIGGERS_PER_REACT()
+        );
     }
 }

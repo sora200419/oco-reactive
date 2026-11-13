@@ -374,6 +374,29 @@ contract OrderVaultForkTest is V4ForkBase {
         assertEq(address(v).balance, 0.7 ether);
     }
 
+    /// The recovery the README describes: with too little balance the debt cannot be paid; a plain
+    /// transfer tops the vault up, then anyone can settle it.
+    function test_coverDebt_underfundedRevertsThenTopUpSettlesIt() public {
+        MockSystem debtProxy = new MockSystem();
+        OrderVault v =
+            new OrderVault{value: 0.1 ether}(IPayable(payable(address(debtProxy))), reactive, swapper, key);
+        debtProxy.setDebt(address(v), 0.3 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(AbstractPayer.InsufficientFunds.selector, 0.3 ether, 0.1 ether)
+        );
+        v.coverDebt();
+
+        vm.deal(bob, 1 ether);
+        vm.prank(bob);
+        (bool ok,) = address(v).call{value: 0.2 ether}("");
+        assertTrue(ok, "plain transfer accepted");
+
+        vm.prank(bob);
+        v.coverDebt();
+        assertEq(address(debtProxy).balance, 0.3 ether, "debt paid");
+        assertEq(address(v).balance, 0);
+    }
+
     function test_withdraw_ownerOnlyAndNativeOnly() public {
         vm.deal(address(vault), 1 ether);
         uint256 id = _create(_params());

@@ -177,6 +177,52 @@ cast call $SYSTEM_CONTRACT_ADDR "debt(address)(uint256)" $OCO_REACTIVE_ADDR --rp
 cast call $DESTINATION_CALLBACK_PROXY_ADDR "debt(address)(uint256)" $ORDER_VAULT_ADDR --rpc-url $ORIGIN_RPC
 ```
 
+Neither contract can pay its debt from inside `react` or `execute`, because those are exactly what
+debt stops. To pay it, send the contract funds with a plain transfer, then call `coverDebt()`,
+which anyone may call; it reverts with `InsufficientFunds` and pays nothing if the balance is still
+short. For the reactive contract (lREACT on Lasna):
+
+```bash
+cast send $OCO_REACTIVE_ADDR --value 1ether --rpc-url $REACTIVE_RPC --chain 5318007 --account deployer
+```
+
+```bash
+cast send $OCO_REACTIVE_ADDR "coverDebt()" --rpc-url $REACTIVE_RPC --chain 5318007 --account deployer
+```
+
+For the vault (ETH on Unichain Sepolia):
+
+```bash
+cast send $ORDER_VAULT_ADDR --value 0.001ether --rpc-url $ORIGIN_RPC --account deployer
+```
+
+```bash
+cast send $ORDER_VAULT_ADDR "coverDebt()" --rpc-url $ORIGIN_RPC --account deployer
+```
+
+Both steps are covered by tests (`test_coverDebt_underfundedRevertsThenTopUpSettlesIt` in the
+reactive contract's and the vault's suites) but have not been run on the testnets, since neither
+contract has had debt. Once delivery resumes, the next swap in the pool re-checks every tracked
+order; at most four fire per swap, and an order triggered or failed in the last 30 to 120 seconds,
+or one that used up its five attempts in the hour, waits for a later swap.
+
+Events missed while the reactive contract owed fees can leave its view of an order wrong in two
+ways. Compare the first word this returns (1 tracked, 0 not) with the order's status in the vault
+(the third field of `getOrder`; 1 active, 2 executed, 3 cancelled, 4 expired):
+
+```bash
+cast call $OCO_REACTIVE_ADDR "getTracked(uint256)" <orderId> --rpc-url $REACTIVE_RPC
+```
+
+- Vault 1, reactive 0: right after placing an order this is normal for a few seconds, so check
+  again. If it stays, the creation was missed (or the order was dropped because 20 were already
+  tracked) and the order will never trigger. Cancel it and place it again.
+- Vault 2, 3 or 4, reactive 1: the closing event was missed. The vault ignores callbacks for a
+  closed order without telling the reactive contract, so while the price stays past the order's
+  level it keeps requesting callbacks (up to five an hour, each paid for) and holds one of the 20
+  tracking slots until the first swap more than 60 seconds after the order's expiry, which costs
+  one last callback.
+
 The reactive contract records the position of the newest swap it has processed. If this stays 0
 after a swap, swap events are not reaching it or are being ignored:
 
