@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
-import { ADDR, POOL_KEY, VAULT_ABI, REACTIVE_ABI, SWAPPER_ABI } from './config.js';
+import { ADDR, POOL_KEY, VAULT_ABI, REACTIVE_ABI, SWAPPER_ABI, ERC20_ABI } from './config.js';
 
 const cast = (...args) => execFileSync('cast', args, { encoding: 'utf8' }).trim();
 
@@ -39,6 +39,16 @@ test('every error and event in the ABIs is declared with the same types in the S
       assert.deepEqual(types, item.inputs.map((i) => i.type), `${item.type} ${item.name} has different parameter types`);
     }
   }
+});
+
+test('the faucet call matches TestToken.mint, which is open to everyone', () => {
+  const src = readFileSync(new URL('../src/v4/TestToken.sol', import.meta.url), 'utf8');
+  const decl = src.match(/function mint\(([^)]*)\)\s*external\s*\{/);
+  assert.ok(decl, 'TestToken.mint must be a plain external function with no access modifier');
+  const types = decl[1].split(',').map((p) => p.trim().split(' ')[0]);
+  const mint = ERC20_ABI.find((x) => x.name === 'mint');
+  assert.deepEqual(types, mint.inputs.map((i) => i.type));
+  assert.equal(cast('sig', `mint(${types.join(',')})`), cast('sig', 'mint(address,uint256)'));
 });
 
 test('event signatures in the ABIs match the contracts', () => {

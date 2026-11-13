@@ -12,6 +12,7 @@ import {
   txUrl,
   isUserRejection,
   recentIds,
+  switchToChain,
   MAX_TICK,
 } from './lib.js';
 
@@ -127,6 +128,73 @@ test('isUserRejection finds a 4001 anywhere in the cause chain', () => {
   assert.equal(isUserRejection({ name: 'X', cause: { name: 'UserRejectedRequestError' } }), true);
   assert.equal(isUserRejection(new Error('execution reverted')), false);
   assert.equal(isUserRejection(undefined), false);
+});
+
+const CHAIN = { id: 1301, name: 'Unichain Sepolia', rpc: 'https://sepolia.unichain.org', explorer: 'https://sepolia.uniscan.xyz' };
+
+/**
+ * A scripted wallet. `onSwitch` decides what a switch request does when the network is unknown:
+ * 'reject4902' (the standard answer), 'unsupported' (Rainbow's answer), 'decline' (the person
+ * says no). `addSwitches` says whether adding a network also switches to it.
+ */
+function mockWallet({ start = '0x1', onSwitch = 'reject4902', addSwitches = true, switchAfterAdd = true } = {}) {
+  let chainId = start;
+  let known = false;
+  const calls = [];
+  return {
+    calls,
+    request: async ({ method, params }) => {
+      calls.push(method);
+      if (method === 'eth_chainId') return chainId;
+      if (method === 'wallet_switchEthereumChain') {
+        if (onSwitch === 'decline') throw Object.assign(new Error('User rejected'), { code: 4001 });
+        if (!known) {
+          if (onSwitch === 'unsupported') throw Object.assign(new Error('Unsupported network'), { code: -32603 });
+          throw Object.assign(new Error('Unrecognized chain'), { code: 4902 });
+        }
+        if (switchAfterAdd) chainId = params[0].chainId;
+        return null;
+      }
+      if (method === 'wallet_addEthereumChain') {
+        assert.equal(params[0].chainId, '0x515');
+        assert.deepEqual(params[0].rpcUrls, [CHAIN.rpc]);
+        known = true;
+        if (addSwitches) chainId = params[0].chainId;
+        return null;
+      }
+      throw new Error('unexpected ' + method);
+    },
+  };
+}
+
+test('switchToChain does nothing when the wallet is already there', async () => {
+  const w = mockWallet({ start: '0x515' });
+  await switchToChain(w, CHAIN);
+  assert.deepEqual(w.calls, ['eth_chainId']);
+});
+
+test('switchToChain adds the network on the standard 4902 answer', async () => {
+  const w = mockWallet({ onSwitch: 'reject4902' });
+  await switchToChain(w, CHAIN);
+  assert.ok(w.calls.includes('wallet_addEthereumChain'));
+});
+
+test('switchToChain also adds it when the wallet answers "unsupported network" (Rainbow)', async () => {
+  const w = mockWallet({ onSwitch: 'unsupported', addSwitches: false });
+  await switchToChain(w, CHAIN);
+  // Added without switching, so it asks to switch once more, then confirms the chain.
+  assert.deepEqual(w.calls, ['eth_chainId', 'wallet_switchEthereumChain', 'wallet_addEthereumChain', 'eth_chainId', 'wallet_switchEthereumChain', 'eth_chainId']);
+});
+
+test('switchToChain stops when the person declines, without adding anything', async () => {
+  const w = mockWallet({ onSwitch: 'decline' });
+  await assert.rejects(() => switchToChain(w, CHAIN), (e) => isUserRejection(e));
+  assert.ok(!w.calls.includes('wallet_addEthereumChain'));
+});
+
+test('switchToChain refuses to continue when the wallet still is not on the chain', async () => {
+  const w = mockWallet({ onSwitch: 'unsupported', addSwitches: false, switchAfterAdd: false });
+  await assert.rejects(() => switchToChain(w, CHAIN), /still not on Unichain Sepolia/);
 });
 
 test('recentIds lists the newest ids first, bounded', () => {

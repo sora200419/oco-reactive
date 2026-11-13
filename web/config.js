@@ -197,4 +197,9 @@ export const ERC20_ABI = [
   { type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ name: 'o', type: 'address' }, { name: 's', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
   { type: 'function', name: 'approve', stateMutability: 'nonpayable', inputs: [{ name: 's', type: 'address' }, { name: 'v', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] },
   { type: 'function', name: 'symbol', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'string' }] },
+  // The demo tokens are faucet tokens: anyone may mint (src/v4/TestToken.sol).
+  { type: 'function', name: 'mint', stateMutability: 'nonpayable', inputs: [{ name: 'to_', type: 'address' }, { name: 'amount_', type: 'uint256' }], outputs: [] },
 ];
+
+/** How many of each test token "Get test tokens" mints: enough for several orders and pushes. */
+export const FAUCET_AMOUNT = 2_000n * 10n ** 18n;

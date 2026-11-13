@@ -169,6 +169,39 @@ export function isUserRejection(error) {
   return false;
 }
 
+/**
+ * Puts an EIP-1193 wallet on `chain` ({ id, name, rpc, explorer }). The standard answer to
+ * switching to an unknown network is error 4902, but some wallets (Rainbow) answer "unsupported
+ * network" with another code, so any failure other than the person declining leads to asking the
+ * wallet to add the network. Some wallets add without switching, so the chain is checked at the end.
+ */
+export async function switchToChain(provider, chain) {
+  const want = '0x' + chain.id.toString(16);
+  if ((await provider.request({ method: 'eth_chainId' })) === want) return;
+  try {
+    await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: want }] });
+    return;
+  } catch (e) {
+    if (isUserRejection(e)) throw e;
+  }
+  await provider.request({
+    method: 'wallet_addEthereumChain',
+    params: [{
+      chainId: want,
+      chainName: chain.name,
+      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      rpcUrls: [chain.rpc],
+      blockExplorerUrls: [chain.explorer],
+    }],
+  });
+  if ((await provider.request({ method: 'eth_chainId' })) !== want) {
+    await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: want }] });
+  }
+  if ((await provider.request({ method: 'eth_chainId' })) !== want) {
+    throw new Error(`The wallet is still not on ${chain.name} (chain ${chain.id}). Switch it there by hand and try again.`);
+  }
+}
+
 /** The ids to read for "my orders": the newest `limit` ids, newest first. */
 export function recentIds(nextOrderId, limit = 50) {
   const next = Number(nextOrderId);

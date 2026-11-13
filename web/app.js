@@ -11,7 +11,7 @@ import {
   ContractFunctionRevertedError,
 } from 'https://cdn.jsdelivr.net/npm/viem@2.57.11/+esm';
 
-import { ORIGIN, REACTIVE, ADDR, POOL_KEY, ORDER_SCAN, WATCH_MS, POLL_MS, VAULT_ABI, REACTIVE_ABI, SWAPPER_ABI, ERC20_ABI } from './config.js';
+import { ORIGIN, REACTIVE, ADDR, POOL_KEY, ORDER_SCAN, WATCH_MS, POLL_MS, VAULT_ABI, REACTIVE_ABI, SWAPPER_ABI, ERC20_ABI, FAUCET_AMOUNT } from './config.js';
 import {
   STATUS,
   STATUS_LABEL,
@@ -25,6 +25,7 @@ import {
   txUrl,
   isUserRejection,
   recentIds,
+  switchToChain,
 } from './lib.js';
 
 // ------------------------------------------------------------------ chains
@@ -61,7 +62,7 @@ const state = {
 /** Buttons that send transactions; disabled while one is in flight or no wallet is connected. */
 function setActionButtons() {
   const off = state.busy || !state.account;
-  for (const id of ['place', 'push-down', 'push-up']) $(id).disabled = off;
+  for (const id of ['place', 'push-down', 'push-up', 'faucet']) $(id).disabled = off;
   for (const b of document.querySelectorAll('button.cancel')) b.disabled = off;
 }
 
@@ -154,36 +155,7 @@ window.addEventListener('eip6963:announceProvider', (event) => {
   renderWallets();
 });
 
-async function ensureChain(provider) {
-  const want = '0x' + ORIGIN.id.toString(16);
-  const have = await provider.request({ method: 'eth_chainId' });
-  if (have === want) return;
-  try {
-    await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: want }] });
-    return;
-  } catch (e) {
-    // The standard answer for an unknown network is 4902, but some wallets (Rainbow) answer
-    // "unsupported network" with another code. Anything but the person declining: offer to add it.
-    if (isUserRejection(e)) throw e;
-  }
-  await provider.request({
-    method: 'wallet_addEthereumChain',
-    params: [{
-      chainId: want,
-      chainName: ORIGIN.name,
-      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-      rpcUrls: [ORIGIN.rpc],
-      blockExplorerUrls: [ORIGIN.explorer],
-    }],
-  });
-  // Some wallets add without switching; ask once more and check.
-  if ((await provider.request({ method: 'eth_chainId' })) !== want) {
-    await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: want }] });
-  }
-  if ((await provider.request({ method: 'eth_chainId' })) !== want) {
-    throw new Error(`The wallet is still not on ${ORIGIN.name} (chain ${ORIGIN.id}). Switch it there by hand and try again.`);
-  }
-}
+const ensureChain = (provider) => switchToChain(provider, ORIGIN);
 
 async function connect(provider) {
   try {
@@ -476,6 +448,17 @@ async function placeOrder(event) {
   }
 }
 
+/** Mints both test tokens to the connected wallet (they are open-mint faucet tokens). */
+async function getTestTokens() {
+  await guarded(async () => {
+    for (const [i, address] of [ADDR.token0, ADDR.token1].entries()) {
+      await write(`Mint ${state.symbols[i]}`, { address, abi: ERC20_ABI, functionName: 'mint', args: [state.account, FAUCET_AMOUNT] });
+    }
+    say(`Minted ${formatAmount(FAUCET_AMOUNT, 18, 0)} ${state.symbols[0]} and ${state.symbols[1]} to your wallet.`, 'ok');
+    refreshMarket();
+  });
+}
+
 async function cancelOrder(id) {
   await guarded(async () => {
     const { hash } = await write(`Cancel order ${id}`, { address: ADDR.vault, abi: VAULT_ABI, functionName: 'cancelOrder', args: [BigInt(id)] });
@@ -604,6 +587,7 @@ async function watch(loop, ids, swapBlock, lasnaFrom) {
 $('order-form').addEventListener('submit', placeOrder);
 $('order-form').addEventListener('input', previewLevels);
 $('refresh-orders').addEventListener('click', () => refreshAll());
+$('faucet').addEventListener('click', getTestTokens);
 $('push-down').addEventListener('click', () => push(true));
 $('push-up').addEventListener('click', () => push(false));
 

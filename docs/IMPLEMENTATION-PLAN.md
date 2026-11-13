@@ -15,7 +15,7 @@
 - [x] 建公开 GitHub 仓库并推送（11/11）：`https://github.com/sora200419/oco-reactive`。验证：匿名克隆后 `git submodule update --init`、`forge build`、`forge test` 全部通过（38 个测试）。
 - [x] 测试网跑通最小闭环，三笔交易哈希记入 `docs/tx-hashes.md`（11/11）。验证：三笔交易都从链上读回，`pongCount()` 为 1，源事件到 callback 用时 2 秒。`getCallbacks` 返回空数组，原因未明，改用合约事件对应三笔交易。
 - [x] v4 试验，fork 部分（11/11）：从 v4-core v4.0.0 源码确认 `Swap` 事件；`src/v4/V4Swapper.sol` 不经路由直接对 PoolManager 换币；`test/V4SwapperFork.t.sol` 在 Unichain Sepolia 的 fork（固定区块 67,550,000）上对真实 PoolManager 建池、加流动性、双向 swap 并解码事件，15 个 fork 测试通过；`test/V4SwapperUnit.t.sol` 用假的 PoolManager 覆盖真实池子不会出现的"正负号错误"分支，3 个测试通过。`V4Swapper` 的 9 个守卫都做过"删掉守卫、对应测试变红"的检查。其中 `TransferFailed` 和 `SettleMismatch` 两个守卫删掉后调用仍会被 PoolManager 自己拦下，它们的作用是给出更清楚的报错，不是唯一的保护。
-- [ ] v4 试验，真实广播部分：测试网上发一笔真实的 swap 交易并把哈希记入 `docs/tx-hashes.md`。原计划的验收标准是这一条；fork 测试没有产生真实交易，所以这一项不勾。打算并入 Phase 2 的测试网部署一起做，**这个调整待负责人确认**。
+- [x] v4 试验，真实广播部分：测试网上发一笔真实的 swap 交易并把哈希记入 `docs/tx-hashes.md`。负责人同意并入 Phase 2 的测试网部署一起做；11/12 已完成：止损链路 #1 的 swap `0x3ca44cc7…9160` 就是经 V4Swapper 发出的真实 v4 swap（见 `docs/tx-hashes.md`），之后每次成交和演示 swap 也都走它。
 - [x] 11/16 决策（提前于 11/11 做出）：**走 v4**，不启用 V2 退路。依据是 fork 测试，不是真实交易；测量条件和余量见下面"gas"一条。
 
 ### v4 试验结论（写 Phase 2 时要用）
@@ -109,20 +109,23 @@
 
 ## Phase 3：延迟、加固、界面（11/24–11/30）
 - [x] `tools/latency` 工具（11/13）：`run` 模式发真实交易逐轮测量，`replay` 模式从已有的 swap 交易回算。用 replay 回算了测试网上已有的四组链路，块数和哈希与手工记录一致（2、2、3、2 个区块）。测试 `node --test tools/latency/lib.test.mjs tools/latency/round.test.mjs`（含任一步失败后订单都会被取消的测试）。
-- [x] 跑 30 轮以上，产出 CSV 和 p50 / p95，结果写进 README（11/13）：30 轮全部成交，swap 区块到成交区块 p50 2 块 / 2 秒，p95 3 块 / 3 秒（21 轮 2 块、9 轮 3 块）；约 0.068 lREACT 一轮。第一次运行因为负载均衡 RPC 的落后节点停在第 1 轮，工具已修（查不到区块和撤单后的状态都会重读，时间戳改到计时结束后再查）。
+- [x] 跑 30 轮以上，产出 CSV 和 p50 / p95，结果写进 README（11/13）：30 轮全部成交，swap 区块到成交区块 p50 2 块 / 2 秒，p95 3 块 / 3 秒（21 轮 2 块、9 轮 3 块）；约 0.068 lREACT 一轮。第一次运行因为负载均衡 RPC 的落后节点停在第 1 轮（记录在 `tools/latency/results/run-2026-11-13T03-21-57-663Z.csv` 和 `.md`；那一轮的订单 8 实际已经成交，是工具误判），工具已修（查不到区块和撤单后的状态都会重读，时间戳改到计时结束后再查）。
 - [x] 欠款处理和 gas 上限压测（满额订单）（11/13）。验证：满额时 `react` gas 低于 900,000。
   - gas：测试 `test_gasCap_*` 把跟踪上限 20 张填满，量三种最坏情况，再加上真实网络的额外开销。额外开销用两笔真实 reactive 交易校准（1 张触发 112,444、3 张一起触发 171,802）：固定约 37,500，每个回调请求约 4,000。预测值：20 张最高价都移动、不触发 310,734；再加 4 张触发 367,702；4 张过期（最贵）530,958，都低于 900,000。校准用一笔没参与校准的真实过期交易检验：预测 148,038，实际 134,783，高估 9.8%（`test_gasModel_predictsARealExpiryTransaction`，要求不低估超过 10%）。Forge 1.9.0 默认 `isolate = true`（`forge config` 可见，本仓库没设），测试里的每次外部调用按一笔新交易计费（空调用 21,543，已写过的槽再写 26,784），所以测到的数字已含基础费和冷、干净存储的价格；即使关掉隔离，差的基础费也会被校准的固定部分吸收。变异检查：跟踪上限改成 60 时最坏情况预测 944,518，单笔批量上限改成 16 时 1,173,850，都会让测试失败。
   - 欠款：两边合约都不能在 `react` / `execute` 里自己还款（欠款时这两个根本不会被调用），所以靠"转账补款再调用 `coverDebt()`"；新测试 `test_coverDebt_underfundedRevertsThenTopUpSettlesIt`（reactive 和金库各一个）证明余额不够时什么都不付、补款后能还清。README 的 If nothing happens 写了补款命令，以及欠款期间漏掉事件的两种后果和检查方法：漏掉创建事件，订单永远不会触发，要撤单重下；漏掉关闭事件，reactive 合约会继续为已关闭的订单请求 callback（每小时最多 5 次，都要付费），并占着一个跟踪名额，直到过期 60 秒后的第一笔 swap（还要再付最后一次 callback）。后一种目前只写进文档，没有改合约。测试网上两个合约都还没欠过款，所以补款流程没有在链上实际跑过。
 - [x] 最小网页（11/13 完成，线上：https://sora200419.github.io/oco-reactive/ ；还剩下面标了"等项目做完再处理"的 Rainbow 提示说明和 `ensureChain` 复审）。
   - [x] `web/` 静态页（11/13，裁判两轮复审通过，16 个测试；用只读的注入钱包在浏览器里验证了连接、订单列表、下单模拟通过、余额不足提示）：连钱包、读价格和余额、下单（含授权）、我的订单（含取消、Reactive 是否已跟踪）、演示推价格、时间线。纯函数（tick 计算、表单校验、时间线排序）放单独模块，用 `node --test` 测。
   - [x] 本地浏览器里对测试网实测一遍完整流程（11/13，负责人用 Rainbow 签名）：订单 #39（止损 -711、止盈 -591）下单成功、reactive 合约跟踪，推价格后时间线出现 swap、触发订单 #39（止损）、卖出订单 #39 三行，swap 到成交 2 个区块 / 2 秒，订单变成 sold。实测中发现 Rainbow 对 Unichain Sepolia 切换网络报 "Unsupported network"，页面改为失败后先请钱包添加网络再切换（该改动实测可用，尚未经裁判复审）。
-  - [ ] 【等项目做完再处理，负责人 11/13 决定】Rainbow 对这个网络的交易预览一直显示 "Simulation Failed"（交易本身在链上成功；原因多半是 Rainbow 的模拟服务不支持这个测试网，未验证）。要在页面的钱包区或 README 里加一句说明，免得评委被红字吓到；并把 `ensureChain` 的改动交裁判复审。
+  - [ ] 【等项目做完再处理，负责人 11/13 决定】Rainbow 对这个网络的交易预览一直显示 "Simulation Failed"（交易本身在链上成功；原因多半是 Rainbow 的模拟服务不支持这个测试网，未验证）。要在页面的钱包区或 README 里加一句说明，免得评委被红字吓到。（`ensureChain` 那部分已在全面审查 R7 中处理：移到 `lib.js` 的 `switchToChain`，用模拟钱包测了 4902、Rainbow 式"unsupported network"、用户拒绝、加了网络却没切过去这几种情况。）
+  - [x] "Get test tokens" 按钮（11/13 全面审查 R2）：两种测试代币各铸 2,000 个给当前钱包，评委不需要自己找代币。用只读注入钱包验证了：没有代币的地址下单时提示 "You hold 0 OCOA"，点按钮时 `mint` 的链上模拟通过（只在发送那一步被测试钱包拒绝）。还没用真钱包在线上点过。
   - [x] GitHub Actions 工作流发布 `web/` 到 Pages（11/13）。第一次运行在 configure-pages 一步失败，因为那时 Pages 还没开；负责人把 Settings → Pages 的 Source 设成 "GitHub Actions" 后重新运行成功。验证：https://sora200419.github.io/oco-reactive/ 首页和 config.js、lib.js、app.js 都返回 200；在内置浏览器里打开线上版本，读到的当前 tick 是 -769，和 `cast call normalizedTick` 一致，控制台无报错。线上版本的钱包操作还没在 Pages 地址上测过（本地 localhost 版本已用 Rainbow 测过完整流程）。
-- [ ] 交 `harness-reviewer` 审查，问题逐条修或给证据。
+- [x] 交 `harness-reviewer` 审查，问题逐条修或给证据（11/13，全新上下文的裁判做全项目审查，两轮 PASS）。R1（README 开头过时，Blocking）重写；R2 加 "Get test tokens" 按钮和铸币命令；R5、R6、R11 和 R3、R4 的现状写进 README "Known limitations"；R7 把切换网络移到 `lib.js` 并用模拟钱包测试；R8、R9 文档修正；R10 接受不改。剩下两件是负责人决定放到 Phase 4 的：R3 提交前充值 lREACT 并检查欠款，R4 重新部署时加防占满保护。
 - [ ] 11/30 功能冻结。
 
 ## Phase 4：部署、视频、文档（12/1–12/5）
 - [ ] 最终部署，Sourcify 验证，三组完整链路哈希。
+  - [ ] 部署前给金库加防"占满名额"的保护（11/13 全面审查 R4，负责人决定在这次重新部署时做）：最低下单量、缩短最长有效期（现在 30 天），并补测试：4 个地址各下 3 张小单想占满 10 个名额时会被拒绝或很快过期。改合约后 README 的 Known limitations 里那一条要同步改。
+  - [ ] 提交前给 reactive 合约充值并检查（11/13 全面审查 R3，负责人决定提交前做）：由负责人充 2 到 3 lREACT，然后确认 reactive 合约和金库的 `debt` 都是 0，把余额和查询结果记进 `docs/tx-hashes.md`。11/13 时余额 0.848 lREACT。
 - [ ] README：是什么、为什么需要 Omni、架构图、延迟表、地址、哈希、复现步骤。
 - [ ] 【负责人】录 3 分钟内的 demo 视频。
 - [ ] 【负责人】12/4 在活动页提交。12/5 缓冲。

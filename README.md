@@ -3,23 +3,108 @@
 On-chain OCO (one-cancels-the-other) stop-loss / take-profit orders for Uniswap v4, executed by a
 Reactive Omni contract. Entry for the Reactive Omni Buildathon, track "Every Second Counts".
 
-**Status: work in progress.** What exists today is the minimal loop and the Uniswap v4 swap spike
-described below. The order vault and the OCO reactive contract are not written yet; see
-`docs/IMPLEMENTATION-PLAN.md`.
+**Status:** deployed and running on the testnets, Unichain Sepolia and Reactive Lasna. Try it on the
+order page: <https://sora200419.github.io/oco-reactive/> (a browser wallet with test tokens; see
+[Order page](#order-page)). Test networks and test tokens only.
 
-## What is in the repo now
+## How it works
 
-### Uniswap v4 swap spike
+```
+Unichain Sepolia                         Reactive Lasna                       Unichain Sepolia
+Uniswap v4 pool  --Swap(tick)----------> OcoReactive.react()  --callback-->  OrderVault.execute()
+OrderVault       --OrderCreated/          checks every tracked order          re-checks the price,
+                   Cancelled/Expired/     against the new tick, keeps         sells on the pool,
+                   Executed/Failed------> trailing peaks, requests a sale     pays the owner
+```
+
+- **`OrderVault`** (`src/OrderVault.sol`, Unichain Sepolia) holds the tokens of each order. An order
+  can carry a stop-loss, a take-profit and a trailing stop at once. When the reactive contract asks
+  it to sell, the vault checks the pool price again and sells the whole order on the Uniswap v4
+  pool through `V4Swapper`, then pays the owner. A sold order is closed, so its other levels can
+  never fire: one cancels the other.
+- **`OcoReactive`** (`src/OcoReactive.sol`, Reactive Lasna) subscribes to the pool's `Swap` event and
+  to the vault's order events. On each swap it compares the new tick with every tracked order's
+  levels, moves trailing peaks up, and requests a callback to the vault for each order whose level
+  was crossed (up to four per swap; an order just triggered waits before it can be triggered
+  again). There is no off-chain bot: without this contract nothing would sell.
+- Written for Reactive Omni with
+  [`reactive-lib-omni`](https://github.com/Reactive-Network/reactive-lib-omni) v0.1.0: `react()` is
+  guarded by `onlySystem`, callbacks are requested with `SYSTEM.requestCallbackV_1_0`, and the
+  vault's `execute` accepts only the callback proxy acting for this reactive contract.
+
+## Deployed contracts
+
+| Contract | Chain | Address |
+|---|---|---|
+| OrderVault | Unichain Sepolia (1301) | [`0x6a8932797F1FB9D164F6e075Cb4F525FEb824184`](https://sepolia.uniscan.xyz/address/0x6a8932797F1FB9D164F6e075Cb4F525FEb824184) |
+| OcoReactive | Reactive Lasna (5318007) | [`0xc358fFaA2bCc6bE005Ab4063Fb7dfcc2Ef4f56fe`](https://lasna.reactscan.net/address/0xc358fFaA2bCc6bE005Ab4063Fb7dfcc2Ef4f56fe) |
+| V4Swapper | Unichain Sepolia (1301) | [`0x715666dc26bB46dBADA0112E0c9E6f7Db945EDAa`](https://sepolia.uniscan.xyz/address/0x715666dc26bB46dBADA0112E0c9E6f7Db945EDAa) |
+| Test token 0 (OCOA) | Unichain Sepolia (1301) | [`0x0A75150631C8E1ad3FcB48D8B0478B1DC685CD2b`](https://sepolia.uniscan.xyz/address/0x0A75150631C8E1ad3FcB48D8B0478B1DC685CD2b) |
+| Test token 1 (OCOB) | Unichain Sepolia (1301) | [`0x354Fc758Ac107D77FF53d3e0b0B2BAE1C55d58EC`](https://sepolia.uniscan.xyz/address/0x354Fc758Ac107D77FF53d3e0b0B2BAE1C55d58EC) |
+
+The pool is on the Uniswap v4 PoolManager `0x00B036B58a818B1BC34d502D3fE730Db729e62AC` (fee 0.3%,
+tick spacing 60, no hooks). Deployment transactions and every hash below:
+[`docs/tx-hashes.md`](docs/tx-hashes.md).
+
+## Recorded loops
+
+Each loop: the swap that crosses the level on Unichain Sepolia → the reactive transaction on Lasna →
+the vault's sale (the callback) on Unichain Sepolia.
+
+| Order | Swap | Reactive transaction | Sale | Swap to sale |
+|---|---|---|---|---|
+| Stop-loss (order 0) | [`0x3ca44c…9160`](https://sepolia.uniscan.xyz/tx/0x3ca44cc7f75b2097acc48eb8cf702c6abe2da96d4bb50bedb8cb5f7d28199160) | [`0x1d5b75…28d4`](https://lasna.reactscan.net/tx/0x1d5b755512e49157d5af6e069d00853622647f46edc7ac993ec1faf1bb0928d4) | [`0x47346e…a4c6`](https://sepolia.uniscan.xyz/tx/0x47346e451d0f34896f4c5c43230bd4d4a57297a42d5906953a37ebd6a457a4c6) | 2 blocks, 2 s |
+| Take-profit (order 1) | [`0x85fa6c…af2b`](https://sepolia.uniscan.xyz/tx/0x85fa6cbb6217c4f407964d9a18cb5f70dbff6901f4877afe17c73cfa52c3af2b) | [`0xc5226d…bcbc`](https://lasna.reactscan.net/tx/0xc5226df2431bb28c6218a00e96d27037f37f469713c709cc4a8a4f3a63ffbcbc) | [`0xc676b4…1a0e`](https://sepolia.uniscan.xyz/tx/0xc676b454087ff03bf086b6c2dd862b4ab9cdfc88a32f33da1b7ecb756be91a0e) | 2 blocks, 2 s |
+| Trailing stop (order 2) | [`0x2c98df…8f4e`](https://sepolia.uniscan.xyz/tx/0x2c98dfeb07448eed2407d2c5763ce6ae2749e6531d0a36b99b4d2fdade6c8f4e) | [`0x6c58c2…df75`](https://lasna.reactscan.net/tx/0x6c58c2a402ea86993396d120078edc1a3682889b3066c42d32ea0922eda8df75) | [`0x255c6a…f7f2`](https://sepolia.uniscan.xyz/tx/0x255c6af5f7132a4b683a72f385ad6a98017ab20c4cd241dc3441f3bc3c26f7f2) | 3 blocks, 3 s |
+
+Also recorded there: a cancellation, an expiry closed through the network, and one reactive
+transaction triggering three orders at once.
+
+**Latency:** over 30 measured rounds every order sold, 2 blocks (2 s) after the crossing swap at
+the median and 3 blocks (3 s) at p95. Details in [Measure latency](#measure-latency).
+
+## Known limitations
+
+- **Orders fill at the market price, not at the level.** When a level is crossed, the vault sells
+  the whole order at the pool price at that moment. Its slippage bound (5% from the order page and
+  the scripts) is measured against the pool's own price at execution, so it guards against a thin
+  pool, not against a price that jumped past the level. Order 0's stop was at tick -120; a single
+  2,000-token sale pushed the price to -395 before the callback ran, and the order filled there.
+- **The reactive contract pays for every swap in the pool.** Each swap by anyone and each vault
+  event is a reactive transaction paid in lREACT by the reactive contract: about 0.013 to 0.017
+  lREACT each, about 0.068 per demo round. On 2026-11-13 it held 0.848 lREACT. When the balance
+  runs out it goes into debt and the whole system stops until it is topped up (see
+  [If nothing happens](#if-nothing-happens)). Because the test tokens can be minted by anyone, anyone
+  could also drain it with many small swaps. The owner tops it up before judging.
+- **The order book can be filled by one party.** The vault allows 10 active orders in total and 3
+  per address, with no minimum amount and lifetimes up to 30 days. Someone using 4 addresses could
+  fill all 10 places with tiny orders, and new orders would then fail with `TooManyActiveOrders`
+  until those expire; only their owners can cancel them. The final deployment is planned to add a
+  minimum order amount and a shorter maximum lifetime.
+- **An expiry request can arrive too early for the vault.** The reactive contract asks the vault to
+  close an expired order 60 seconds after its expiry by Lasna's clock, and stops tracking it at that
+  moment. If Unichain Sepolia's clock were more than 60 seconds behind, the vault would ignore the
+  request and the order would stay active but untracked. The two clocks measured about a second
+  apart. Such an order can always be closed and refunded by anyone with `reclaimExpired(id)`.
+- **A sale has a gas budget.** Each callback asks for 1,000,000 gas, of which the Unichain Sepolia
+  callback proxy keeps about 130,000. A sale that crosses ten stacked narrow liquidity ranges used
+  499,493 gas in the tests (`test_swapExactIn_gasWhenCrossingManyTicks`). If someone added many
+  more narrow ranges in the sale's path, the sale could run out of gas and the order would not be
+  sold (it stays active with its tokens in the vault); this has not been tested.
+
+## Earlier milestones
+
+### Uniswap v4 swap path
 
 `src/v4/V4Swapper.sol` executes an exact-input ERC-20 swap directly against the v4 PoolManager, with
-no router. It is the execution path the order vault will use. `test/V4SwapperFork.t.sol` runs it
-against the real PoolManager on a pinned-block fork of Unichain Sepolia and pins down what a
-subscriber sees in the `Swap` event. It has not been broadcast to a testnet yet.
+no router; the vault sells through it. `test/V4SwapperFork.t.sol` runs it against the real
+PoolManager on a pinned-block fork of Unichain Sepolia and pins down what a subscriber sees in the
+`Swap` event. It is deployed (address above) and used by every sale and every demo swap.
 
 ### Minimal loop
 
 A minimal origin event → reactive transaction → callback loop, used to prove the pipeline end to end
-before the real contracts are layered on top.
+before the real contracts were layered on top.
 
 | Contract | Chain | Role |
 |---|---|---|
@@ -248,8 +333,18 @@ CDN: there is no subresource integrity or content security policy, so a compromi
 offer the wallet a harmful transaction to sign. It is meant for testnet tokens only, and the wallet
 shows every transaction before signing.
 
-It needs a wallet holding the test tokens and a little Unichain Sepolia ETH. Run it locally (the
-page uses JavaScript modules, so open it over http, not as a file):
+It needs a little Unichain Sepolia ETH for gas and the two test tokens. The tokens are free: the
+page's "Get test tokens" button mints 2,000 of each to the connected wallet. Without the page:
+
+```bash
+cast send 0x0A75150631C8E1ad3FcB48D8B0478B1DC685CD2b "mint(address,uint256)" <your address> 2000000000000000000000 --rpc-url https://sepolia.unichain.org --account <your keystore>
+```
+
+```bash
+cast send 0x354Fc758Ac107D77FF53d3e0b0B2BAE1C55d58EC "mint(address,uint256)" <your address> 2000000000000000000000 --rpc-url https://sepolia.unichain.org --account <your keystore>
+```
+
+Run it locally (the page uses JavaScript modules, so open it over http, not as a file):
 
 ```bash
 python -m http.server 8765 --directory web
@@ -291,9 +386,11 @@ in block 67695517.
 The times the tool observed from its own polling are skewed upward and should not be read as the
 latency. In this run the swap block's timestamp was looked up between seeing the swap and the first
 poll, which added at least one RPC round trip to every round, and each round's RPC calls needed 1
-to 3 retries of 400 ms, very likely that same lookup waiting for a lagging node. The tool now reads
-timestamps after the timing ends. The run's own summary file leaves these figures out because of
-the retries; computed from the CSV anyway:
+to 3 retries of 400 ms, very likely that same lookup waiting for a lagging node. Since this run the
+tool reads timestamps after the timing ends and re-reads order states before concluding anything;
+that newer version is covered by unit tests but has not yet been run against the testnets. The
+run's own summary file leaves these figures out because of the retries; computed from the CSV
+anyway:
 
 | Observed, from seeing the swap mined (ms) | p50 | p95 |
 |---|---|---|
