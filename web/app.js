@@ -160,18 +160,28 @@ async function ensureChain(provider) {
   if (have === want) return;
   try {
     await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: want }] });
+    return;
   } catch (e) {
-    if (e?.code !== 4902) throw e;
-    await provider.request({
-      method: 'wallet_addEthereumChain',
-      params: [{
-        chainId: want,
-        chainName: ORIGIN.name,
-        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-        rpcUrls: [ORIGIN.rpc],
-        blockExplorerUrls: [ORIGIN.explorer],
-      }],
-    });
+    // The standard answer for an unknown network is 4902, but some wallets (Rainbow) answer
+    // "unsupported network" with another code. Anything but the person declining: offer to add it.
+    if (isUserRejection(e)) throw e;
+  }
+  await provider.request({
+    method: 'wallet_addEthereumChain',
+    params: [{
+      chainId: want,
+      chainName: ORIGIN.name,
+      nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+      rpcUrls: [ORIGIN.rpc],
+      blockExplorerUrls: [ORIGIN.explorer],
+    }],
+  });
+  // Some wallets add without switching; ask once more and check.
+  if ((await provider.request({ method: 'eth_chainId' })) !== want) {
+    await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: want }] });
+  }
+  if ((await provider.request({ method: 'eth_chainId' })) !== want) {
+    throw new Error(`The wallet is still not on ${ORIGIN.name} (chain ${ORIGIN.id}). Switch it there by hand and try again.`);
   }
 }
 
