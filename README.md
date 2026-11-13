@@ -194,6 +194,45 @@ If you opened a new terminal and lost the exported addresses, copy them from
 Foundry's `cast`; it has no npm dependencies. It reads the same exported variables as the
 deployment steps above.
 
+### Results
+
+30 rounds on 2026-11-13 (UTC), 15 stop-loss and 15 take-profit, all 30 sold. Raw data with every
+transaction hash: [`tools/latency/results/run-2026-11-13T05-32-12-039Z.csv`](tools/latency/results/run-2026-11-13T05-32-12-039Z.csv).
+
+| From the swap that crosses the level to the sale (Unichain Sepolia) | p50 | p95 | max |
+|---|---|---|---|
+| Blocks | 2 | 3 | 3 |
+| Seconds (block timestamps, same chain) | 2 s | 3 s | 3 s |
+
+Percentiles are nearest-rank. In 21 of the 30 rounds the sale landed 2 blocks after the swap, in
+the other 9 it took 3 (mean 2.3). Round 1, for example: swap
+[`0xe4ab…a629`](https://sepolia.uniscan.xyz/tx/0xe4aba16786faecd128d234f8dd109c65541e19b1403992746f82fdf34c9ba629)
+in block 67695515, reactive transaction on Lasna
+[`0x19e2…3ce2`](https://lasna.reactscan.net/tx/0x19e22f2db98e4c3f4cf1b597b021f9575b41c7ad4ac7aff422a64bc845923ce2),
+sale
+[`0x965b…e1be`](https://sepolia.uniscan.xyz/tx/0x965b3e5beaa6cf6f461fafc07bff26d39f9f33b6e003d3019c293dfcd4c0e1be)
+in block 67695517.
+
+The times the tool observed from its own polling are skewed upward and should not be read as the
+latency. In this run the swap block's timestamp was looked up between seeing the swap and the first
+poll, which added at least one RPC round trip to every round, and each round's RPC calls needed 1
+to 3 retries of 400 ms, very likely that same lookup waiting for a lagging node. The tool now reads
+timestamps after the timing ends. The run's own summary file leaves these figures out because of
+the retries; computed from the CSV anyway:
+
+| Observed, from seeing the swap mined (ms) | p50 | p95 |
+|---|---|---|
+| to seeing the reactive transaction on Lasna | 2897 | 3461 |
+| to seeing the sale on Unichain Sepolia | 3946 | 5010 |
+
+With one RPC call taking about 0.6 s here, that delay comes to very roughly 1 to 3 s per round, with
+a polling resolution of about 1.2 s (median; up to 2.1 s, `maxPollCycleMs`). The on-chain figures
+above are the ones to rely on.
+
+Cost: the reactive contract's balance fell from 2.9446 to 0.9161 lREACT, about 0.068 per round.
+
+### How it works
+
 Each round places a small order (10 token0 plus 7 wei; the odd amount marks the tool's own
 orders) 60 ticks from the current price, waits until the
 reactive contract tracks it, pushes the price through the level with one swap (600 tokens), and
@@ -217,7 +256,7 @@ Settings are bounded: at most 200 rounds, `LATENCY_LEVEL_OFFSET` up to 1000 tick
 `LATENCY_ROUND_TIMEOUT_S` up to 600, `LATENCY_POLL_MS` up to 5000.
 
 Before the first round it checks the funds and refuses to start if the reactive contract holds
-less lREACT than the run needs (about 0.08 per round), owes fees, or the vault, the wallet's
+less lREACT than the run needs (0.08 per round, a margin over the 0.068 measured), owes fees, or the vault, the wallet's
 Unichain Sepolia ETH or its test tokens run short. It prints the top-up command when lREACT is
 short.
 
@@ -230,8 +269,12 @@ Two measurements per round:
   transaction on Lasna, and seeing the callback. Every "seen" time comes from polling, so each end
   is late by up to one poll cycle (a 200 ms sleep plus the RPC round trips), and the difference can
   be off by about that much in either direction. The largest poll cycle of each round is in the CSV
-  (`maxPollCycleMs`). Rounds where an RPC call had to be retried are marked and left out of the
-  observed statistics, because the backoff would be counted as latency.
+  (`maxPollCycleMs`). Rounds where an RPC call had to be retried while a time was being taken
+  (order mined to tracked, swap mined to the end of the loop) are marked and left out of the
+  observed statistics, because the backoff would be counted as latency. Lookups outside those
+  windows, such as block timestamps, may retry without marking the round. Retries while waiting
+  for the order's or the swap's receipt are not counted either: they make the tool see the receipt
+  late, which can only shorten the time that follows it.
 
 Block timestamps are never subtracted across the two chains: their clocks differ by about a second.
 

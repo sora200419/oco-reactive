@@ -195,6 +195,16 @@ test('cancel failing while the order is still active: flagged so the run stops',
   assert.match(rec.note, /cancel failed/);
 });
 
+test('cancel loses the race to the sale and the first re-reads are stale: executed-late, run continues', async () => {
+  const io = stubIo({ failAt: 'cancelSend' });
+  let reads = 0;
+  // First read (before the cancel) and two re-reads still say Active (lagging node); then Executed.
+  io.orderStatus = async () => (++reads <= 3 ? STATUS.Active : STATUS.Executed);
+  const rec = await measureRound(io, cfg, OWNER, 0, 0);
+  assert.equal(rec.outcome, 'executed-late');
+  assert.equal(rec.leftActive, undefined);
+});
+
 test('cancel failing and the re-read failing too: unknown state is flagged so the run stops', async () => {
   const io = stubIo({ failAt: 'cancelSend' });
   let reads = 0;
@@ -207,14 +217,53 @@ test('cancel failing and the re-read failing too: unknown state is flagged so th
   assert.match(rec.note, /state unknown/);
 });
 
-test('every order-status read failing: unknown state is flagged so the run stops', async () => {
+test('every order-status read failing: the cancel is tried anyway, and a mined cancel settles it', async () => {
   const io = stubIo();
   io.orderStatus = async () => {
     throw new Error('rpc down');
   };
   const rec = await measureRound(io, cfg, OWNER, 0, 0);
+  assert.equal(cancels(io), 1);
+  assert.match(rec.note, /order cancelled/);
+  assert.equal(rec.leftActive, undefined);
+});
+
+test('every order-status read failing and the cancel failing: flagged so the run stops', async () => {
+  const io = stubIo({ failAt: 'cancelSend' });
+  io.orderStatus = async () => {
+    throw new Error('rpc down');
+  };
+  const rec = await measureRound(io, cfg, OWNER, 0, 0);
   assert.equal(rec.leftActive, true);
-  assert.equal(cancels(io), 0);
+  assert.match(rec.note, /state unknown/);
+});
+
+test('a lagging node first answers None for a known order: the order is still cancelled', async () => {
+  const io = stubIo();
+  const real = io.orderStatus;
+  let reads = 0;
+  io.orderStatus = async (id) => (++reads <= 2 ? STATUS.None : real(id));
+  const rec = await measureRound(io, cfg, OWNER, 0, 0);
+  assert.equal(cancels(io), 1);
+  assert.match(rec.note, /order cancelled/);
+});
+
+test('cancel failing and every re-read answering None: not reported as closed, run stops', async () => {
+  const io = stubIo({ failAt: 'cancelSend' });
+  let reads = 0;
+  io.orderStatus = async () => (++reads === 1 ? STATUS.Active : STATUS.None);
+  const rec = await measureRound(io, cfg, OWNER, 0, 0);
+  assert.equal(rec.leftActive, true);
+  assert.doesNotMatch(rec.note, /closed meanwhile/);
+});
+
+test('cancel failing, a None re-read, then Executed: executed-late', async () => {
+  const io = stubIo({ failAt: 'cancelSend' });
+  let reads = 0;
+  io.orderStatus = async () => (++reads === 1 ? STATUS.Active : reads === 2 ? STATUS.None : STATUS.Executed);
+  const rec = await measureRound(io, cfg, OWNER, 0, 0);
+  assert.equal(rec.outcome, 'executed-late');
+  assert.equal(rec.leftActive, undefined);
 });
 
 test('order send killed after broadcasting: flagged so the run stops', async () => {
@@ -237,6 +286,55 @@ test('order send failing and the nonce unreadable: flagged so the run stops', as
   const io = stubIo({ failAt: 'nonceAfter' });
   const rec = await measureRound(io, cfg, OWNER, 0, 0);
   assert.equal(rec.leftActive, true);
+});
+
+/** Makes the stub's loop see the trigger on Lasna and the sale two blocks after the swap. */
+function withSale(io) {
+  io.retries = 0;
+  io.rpcRetries = () => io.retries;
+  io.getLogs = async (chain) =>
+    chain === 'reactive'
+      ? [{ transactionHash: '0xreactive', blockNumber: '0x500', topics: [TOPICS.triggered] }]
+      : [{ transactionHash: '0xcallback', blockNumber: '0x66', topics: [TOPICS.orderExecuted] }];
+  return io;
+}
+
+test('retries while reading block timestamps do not mark the round (they are outside the timed window)', async () => {
+  const io = withSale(stubIo());
+  let lookups = 0;
+  io.blockTimestamp = async (chain, n) => {
+    if (++lookups > 1) io.retries += 2; // every lookup after the expiry one needs two retries
+    return 1_800_000_000 + n;
+  };
+  const rec = await measureRound(io, cfg, OWNER, 0, 0);
+  assert.equal(rec.outcome, 'executed');
+  assert.equal(rec.chainBlocks, 2);
+  assert.equal(rec.chainSeconds, 2);
+  assert.equal(rec.rpcRetries, 0);
+  assert.doesNotMatch(rec.note ?? '', /RPC retries/);
+});
+
+test('retries while polling for the loop mark the round', async () => {
+  const io = withSale(stubIo());
+  const getLogs = io.getLogs;
+  io.getLogs = async (chain, f) => {
+    io.retries += 1;
+    return getLogs(chain, f);
+  };
+  const rec = await measureRound(io, cfg, OWNER, 0, 0);
+  assert.equal(rec.outcome, 'executed');
+  assert.equal(rec.rpcRetries, 2);
+  assert.match(rec.note, /RPC retries while timing/);
+});
+
+test('retries while waiting for the order to be tracked mark the round', async () => {
+  const io = withSale(stubIo());
+  io.isTracked = async () => {
+    io.retries += 1;
+    return true;
+  };
+  const rec = await measureRound(io, cfg, OWNER, 0, 0);
+  assert.equal(rec.rpcRetries, 1);
 });
 
 test('interrupt during the loop: order cancelled, outcome interrupted', async () => {

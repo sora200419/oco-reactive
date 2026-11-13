@@ -53,6 +53,8 @@ const RESULTS_DIR = join(HERE, 'results');
 const RPC_TIMEOUT_MS = 15_000;
 const RPC_RETRIES = 4;
 const CAST_TIMEOUT_MS = 120_000;
+const BLOCK_LOOKUPS = 15;
+const BLOCK_LOOKUP_MS = 400;
 const SYSTEM_CONTRACT = '0x8888888888888888888888888888888888888888';
 const CALLBACK_PROXY = '0x775c9b990ade401060b78d0e98684eef8d2466c1';
 /** Estimated lREACT spent by the reactive contract per round (four reactive transactions). */
@@ -144,10 +146,18 @@ function makeChainIo(cfg) {
     url,
     call,
     blockNumber: async (chain) => Number(BigInt(await rpc(url(chain), 'eth_blockNumber', []))),
+    // A block number just reported by one node can be missing on the next node behind the same
+    // load-balanced URL for a moment, so "not found" is retried briefly (and counted as a retry).
     blockTimestamp: async (chain, n) => {
-      const b = await rpc(url(chain), 'eth_getBlockByNumber', [hex(n), false]);
-      if (!b) throw new Error(`block ${n} not found on ${chain}`);
-      return Number(BigInt(b.timestamp));
+      for (let attempt = 0; attempt < BLOCK_LOOKUPS; attempt++) {
+        if (attempt > 0) {
+          rpcRetryCount++;
+          await sleep(BLOCK_LOOKUP_MS);
+        }
+        const b = await rpc(url(chain), 'eth_getBlockByNumber', [hex(n), false]);
+        if (b) return Number(BigInt(b.timestamp));
+      }
+      throw new Error(`block ${n} not found on ${chain} after ${BLOCK_LOOKUPS} lookups`);
     },
     /** Block timestamp, or null when the node does not serve that block (pruned history). */
     blockTimestampOrNull: async (chain, n) => {

@@ -109,7 +109,7 @@
 
 ## Phase 3：延迟、加固、界面（11/24–11/30）
 - [x] `tools/latency` 工具（11/13）：`run` 模式发真实交易逐轮测量，`replay` 模式从已有的 swap 交易回算。用 replay 回算了测试网上已有的四组链路，块数和哈希与手工记录一致（2、2、3、2 个区块）。测试 `node --test tools/latency/lib.test.mjs tools/latency/round.test.mjs`（含任一步失败后订单都会被取消的测试）。
-- [ ] 跑 30 轮以上，产出 CSV 和 p50 / p95，结果写进 README。
+- [x] 跑 30 轮以上，产出 CSV 和 p50 / p95，结果写进 README（11/13）：30 轮全部成交，swap 区块到成交区块 p50 2 块 / 2 秒，p95 3 块 / 3 秒（21 轮 2 块、9 轮 3 块）；约 0.068 lREACT 一轮。第一次运行因为负载均衡 RPC 的落后节点停在第 1 轮，工具已修（查不到区块和撤单后的状态都会重读，时间戳改到计时结束后再查）。
 - [ ] 欠款处理和 gas 上限压测（满额订单）。验证：满额时 `react` gas 低于 900,000。
 - [ ] 最小网页（落后就砍）。
 - [ ] 交 `harness-reviewer` 审查，问题逐条修或给证据。
@@ -130,6 +130,7 @@
 - Foundry 装在 `~/.foundry/bin`，还没加进 PATH，命令要写全路径或由负责人自己加 PATH。
 - v4 的事件布局和合约内 swap 已在 fork 上验证，但还没有真实交易佐证；`opCode` 对 Swap 日志的取值待上测试网确认。
 - fork 测试依赖公共节点 `https://sepolia.unichain.org`，节点不可用时 `forge test` 里的 fork 套件会失败（其余两个套件不受影响）。
-- Lasna 到 Unichain Sepolia 的真实延迟未知；若远高于预期，README 如实写并分析各段耗时。
+- ~~Lasna 到 Unichain Sepolia 的真实延迟未知~~ 已实测（11/13）：swap 后 2 到 3 个区块成交，见 README 的 Measure latency。
+- 公共 RPC（`sepolia.unichain.org`）背后是负载均衡的多个节点，刚出的区块或刚变的状态可能在某个节点上暂时读不到；工具对这类读取都会重试几次再下结论。
 - 官方 demo 已有 V2 止损/止盈，本项目必须靠 v4、OCO、移动止损和延迟数据体现差异。
 - 仓库路径含空格并在 OneDrive 下，可能让工具出问题；出问题就把仓库移到无空格的本地路径。

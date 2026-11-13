@@ -15,6 +15,9 @@ import { TOPICS, STATUS, encodeWord, word, int24, planRound, crossed } from './l
 const hex = (n) => '0x' + BigInt(n).toString(16);
 /** How long to wait after a failed order send before checking whether it went out anyway. */
 const CREATE_SETTLE_MS = 5_000;
+/** After a failed cancel: how many times, and how far apart, the order status is re-read. */
+const STATUS_REREADS = 5;
+const STATUS_REREAD_MS = 1_000;
 
 export class Interrupted extends Error {
   constructor() {
@@ -37,6 +40,32 @@ function addNote(rec, text) {
 }
 
 /**
+ * Reads an order's status, retrying while the answer cannot be trusted: a failed read, and
+ * "None" (the order has a known id, so None can only come from a node that lags behind the
+ * creation block). With `retryActive`, "Active" is also retried (used after a failed cancel, where
+ * a lagging node may still show the order as active). Returns null when no trustworthy answer came.
+ */
+async function readStatus(io, id, rec, retryActive) {
+  let status = null;
+  for (let attempt = 0; attempt < STATUS_REREADS; attempt++) {
+    if (attempt > 0) await io.sleep(STATUS_REREAD_MS);
+    try {
+      status = await io.orderStatus(id);
+    } catch (e) {
+      status = null;
+      if (attempt === STATUS_REREADS - 1) addNote(rec, 'could not read the order: ' + e.message);
+      continue;
+    }
+    if (status === STATUS.None) {
+      status = null;
+      continue;
+    }
+    if (status !== STATUS.Active || !retryActive) return status;
+  }
+  return retryActive && status === STATUS.Active ? STATUS.Active : null;
+}
+
+/**
  * Cancels the round's order if it is still active. If the cancel fails because the order was
  * sold in the meantime, says so instead of reporting a failure.
  */
@@ -44,7 +73,10 @@ export async function cancelIfActive(io, cfg, rec) {
   if (rec.orderId === undefined) return;
   const id = BigInt(rec.orderId);
   try {
-    if ((await io.orderStatus(id)) !== STATUS.Active) return;
+    const first = await readStatus(io, id, rec, false);
+    // Closed for sure: nothing to cancel. Unknown (null): try the cancel anyway; it reverts if the
+    // order is not active and the handler below then decides from fresh reads.
+    if (first !== null && first !== STATUS.Active) return;
     const tx = await io.send(cfg.vault, 'cancelOrder(uint256)', [id.toString()]);
     const { receipt } = await io.waitForReceipt(tx, cfg.roundTimeoutMs);
     if (receipt.status === '0x1') {
@@ -53,12 +85,9 @@ export async function cancelIfActive(io, cfg, rec) {
     }
     throw new Error(`cancel ${tx} reverted`);
   } catch (e) {
-    let status = null;
-    try {
-      status = await io.orderStatus(id);
-    } catch (e2) {
-      addNote(rec, 'could not re-read the order: ' + e2.message);
-    }
+    // A cancel can fail because the sale landed a moment ago, and a load-balanced RPC may still
+    // answer "active" from a lagging node. Re-read a few times before concluding anything.
+    const status = await readStatus(io, id, rec, true);
     if (status === STATUS.Executed) {
       rec.outcome = 'executed-late';
       addNote(rec, 'sold after the round timed out');
@@ -107,7 +136,6 @@ async function watchLoop(io, cfg, id, unichainFrom, lasnaFrom, deadline, rec) {
  * the order id and transaction hashes. Throws on unexpected errors; `measureRound` handles them.
  */
 async function roundSteps(io, cfg, owner, index, center, rec) {
-  const retriesAtStart = io.rpcRetries();
   const tick = await io.normalizedTick();
   const plan = planRound(tick, index, cfg.offset, center);
   rec.kind = plan.kind;
@@ -145,6 +173,10 @@ async function roundSteps(io, cfg, owner, index, center, rec) {
   rec.orderId = orderIdFromReceipt(cfg, created).toString();
   const id = BigInt(rec.orderId);
 
+  // Only retries inside a timed window (order seen -> tracked, swap seen -> loop end) can inflate
+  // an observed time, so only those mark the round. Lookups outside the windows may retry freely.
+  let timedRetries = 0;
+  let windowStart = io.rpcRetries();
   const trackDeadline = io.now() + cfg.roundTimeoutMs;
   while (!(await io.isTracked(id))) {
     checkStop(io);
@@ -156,6 +188,7 @@ async function roundSteps(io, cfg, owner, index, center, rec) {
     await io.sleep(cfg.pollMs);
   }
   rec.obsMsOrderToTracked = io.now() - orderSeenAt;
+  timedRetries += io.rpcRetries() - windowStart;
 
   // 2. Push the price through the level and time the loop.
   checkStop(io);
@@ -170,8 +203,8 @@ async function roundSteps(io, cfg, owner, index, center, rec) {
     rec.outcome = 'swap-reverted';
     return;
   }
+  windowStart = io.rpcRetries();
   rec.swapBlock = Number(BigInt(swapReceipt.blockNumber));
-  rec.swapBlockTs = await io.blockTimestamp('origin', rec.swapBlock);
   const swapLog = swapReceipt.logs.find((l) => l.topics[0] === TOPICS.swap);
   rec.tickAfterSwap = swapLog ? int24(word(swapLog.data, 4)) : null;
   if (rec.tickAfterSwap !== null && !crossed(plan, rec.tickAfterSwap)) {
@@ -181,6 +214,13 @@ async function roundSteps(io, cfg, owner, index, center, rec) {
   }
 
   const seen = await watchLoop(io, cfg, id, rec.swapBlock, lasnaFrom, io.now() + cfg.roundTimeoutMs, rec);
+  timedRetries += io.rpcRetries() - windowStart;
+  rec.rpcRetries = timedRetries;
+  if (timedRetries > 0) addNote(rec, 'RPC retries while timing; observed times include backoff');
+
+  // Block timestamps are only needed for the on-chain figures, so they are read after the timed
+  // window: a freshly mined block can be missing on a lagging node for a moment.
+  rec.swapBlockTs = await io.blockTimestamp('origin', rec.swapBlock);
   if (seen.reactive) {
     rec.reactiveTx = seen.reactive.log.transactionHash;
     rec.reactiveBlock = Number(BigInt(seen.reactive.log.blockNumber));
@@ -198,8 +238,6 @@ async function roundSteps(io, cfg, owner, index, center, rec) {
   } else {
     rec.outcome = 'timeout';
   }
-  rec.rpcRetries = io.rpcRetries() - retriesAtStart;
-  if (rec.rpcRetries > 0) addNote(rec, 'RPC retries during the round; observed times include backoff');
 }
 
 /**
