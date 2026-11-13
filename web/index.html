@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OCO Reactive Orders</title>
+  <meta name="description" content="Stop-loss, take-profit and trailing-stop orders on Uniswap v4, executed by a Reactive Network contract. Testnets only.">
+  <style>
+    :root {
+      --bg: #f7f7f5; --panel: #ffffff; --text: #1b1b1a; --muted: #62625e; --line: #e2e2dd;
+      --accent: #2456d6; --accent-text: #ffffff; --ok: #1f7a3d; --warn: #9a5b00; --bad: #b3261e;
+      --demo: #fff4dc; --demo-line: #e8c77a;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121212; --panel: #1c1c1c; --text: #ececea; --muted: #a3a39e; --line: #2f2f2d;
+        --accent: #7aa2ff; --accent-text: #0d1424; --ok: #6fd28f; --warn: #f0b75b; --bad: #ff8a80;
+        --demo: #2a2214; --demo-line: #6b5524;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1 { font-size: 1.5rem; margin: 0 0 4px; }
+    h2 { font-size: 1.05rem; margin: 0 0 12px; }
+    p { margin: 0 0 8px; }
+    .muted { color: var(--muted); }
+    .small { font-size: 0.85rem; }
+    section {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+      padding: 16px; margin-top: 16px;
+    }
+    section.demo { background: var(--demo); border-color: var(--demo-line); }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+    .stat b { display: block; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
+    .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; }
+    input {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg); color: var(--text); font: inherit;
+    }
+    button {
+      padding: 8px 14px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent);
+      color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer;
+    }
+    button.secondary { background: transparent; color: var(--accent); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button img { width: 18px; height: 18px; vertical-align: -4px; margin-right: 6px; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; }
+    .table-wrap { overflow-x: auto; }
+    .status-active { color: var(--accent); }
+    .status-sold { color: var(--ok); }
+    .status-cancelled, .status-expired { color: var(--muted); }
+    #message { min-height: 1.5em; margin-top: 12px; overflow-wrap: anywhere; }
+    #message.ok { color: var(--ok); }
+    #message.warn { color: var(--warn); }
+    #message.bad { color: var(--bad); }
+    ol.timeline { list-style: none; padding: 0; margin: 0; }
+    ol.timeline li { padding: 8px 0 8px 14px; border-left: 3px solid var(--accent); margin-bottom: 8px; }
+    ol.timeline li.waiting { border-left-color: var(--line); color: var(--muted); }
+    a { color: var(--accent); overflow-wrap: anywhere; }
+    code { font-size: 0.85em; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>OCO Reactive Orders</h1>
+  <p class="muted">Stop-loss, take-profit and trailing-stop orders on a Uniswap v4 pool. A contract on
+    Reactive Network watches every swap and asks the vault to sell when a level is crossed; no
+    off-chain bot. <strong>Testnets only</strong> (Unichain Sepolia + Reactive Lasna), test tokens.</p>
+
+  <section aria-labelledby="h-wallet">
+    <h2 id="h-wallet">Wallet</h2>
+    <div class="row" id="wallets"><span class="muted">Looking for a browser wallet…</span></div>
+    <p class="small muted" id="account">Not connected.</p>
+  </section>
+
+  <section aria-labelledby="h-market">
+    <h2 id="h-market">Pool</h2>
+    <div class="stats">
+      <div class="stat"><span class="muted small">Current tick</span><b id="tick">…</b></div>
+      <div class="stat"><span class="muted small" id="bal0-label">token0 balance</span><b id="bal0">–</b></div>
+      <div class="stat"><span class="muted small" id="bal1-label">token1 balance</span><b id="bal1">–</b></div>
+      <div class="stat"><span class="muted small">Active orders</span><b id="active-count">–</b></div>
+    </div>
+    <p class="small muted">The tick is the pool's price in log form: selling token0 pushes it down, selling token1 pushes it up.</p>
+  </section>
+
+  <section aria-labelledby="h-order">
+    <h2 id="h-order">Place an order (sell token0)</h2>
+    <form id="order-form" novalidate>
+      <div class="fields">
+        <div><label for="f-amount">Amount of token0 to sell</label><input id="f-amount" inputmode="decimal" value="10" autocomplete="off"></div>
+        <div><label for="f-stop">Stop-loss: ticks below now</label><input id="f-stop" inputmode="numeric" value="60" placeholder="empty = none"></div>
+        <div><label for="f-tp">Take-profit: ticks above now</label><input id="f-tp" inputmode="numeric" value="60" placeholder="empty = none"></div>
+        <div><label for="f-trail">Trailing distance (ticks)</label><input id="f-trail" inputmode="numeric" placeholder="empty = off"></div>
+        <div><label for="f-life">Lifetime (hours)</label><input id="f-life" inputmode="numeric" value="24"></div>
+      </div>
+      <p class="small muted" id="levels-preview"></p>
+      <button type="submit" id="place" disabled>Connect a wallet first</button>
+    </form>
+  </section>
+
+  <section aria-labelledby="h-orders">
+    <div class="row" style="justify-content: space-between; margin-bottom: 8px;">
+      <h2 id="h-orders" style="margin: 0;">My orders</h2>
+      <button type="button" id="refresh-orders" class="secondary" disabled>Refresh</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Id</th><th>Amount</th><th>Levels (tick)</th><th>Status</th><th>Reactive</th><th></th></tr></thead>
+        <tbody id="orders"><tr><td colspan="6" class="muted">Connect a wallet to see your orders.</td></tr></tbody>
+      </table>
+    </div>
+    <p class="small muted" id="orders-note"></p>
+  </section>
+
+  <section class="demo" aria-labelledby="h-demo">
+    <h2 id="h-demo">Testnet demo: move the price</h2>
+    <p class="small">For demonstrations only. Swaps your own test tokens in the pool to push the price
+      through your order's level, then follows the loop below.</p>
+    <div class="fields">
+      <div><label for="f-push">Amount to swap</label><input id="f-push" inputmode="decimal" value="600"></div>
+    </div>
+    <div class="row">
+      <button type="button" id="push-down" disabled>Push price down (sell token0)</button>
+      <button type="button" id="push-up" class="secondary" disabled>Push price up (sell token1)</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-timeline">
+    <h2 id="h-timeline">Latest loop</h2>
+    <ol class="timeline" id="timeline"><li class="waiting">No demo swap sent from this page yet.</li></ol>
+    <p class="small muted">The timeline follows the first of your orders that the reactive contract
+      triggers after the swap. Swap-to-sale uses block timestamps on Unichain Sepolia. The two chains'
+      clocks are not aligned, so the Lasna step only shows roughly when this page noticed it; the page
+      checks about once a second plus network time, so that figure can be off by a few seconds either way.</p>
+  </section>
+
+  <p id="message" role="status" aria-live="polite"></p>
+  <p class="small muted">Source and contract addresses: <a href="https://github.com/sora200419/oco-reactive">github.com/sora200419/oco-reactive</a></p>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

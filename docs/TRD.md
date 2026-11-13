@@ -6,7 +6,7 @@
 - **源链和目标链**：Unichain Sepolia（Chain ID 1301）。赛道指定链，1 秒出块，有官方 Uniswap v4 部署。
 - **DEX**：Uniswap v4。官方 demo 已做过 V2 止损，v4 是差异点；`Swap` 事件按 poolId 索引，适合精确订阅。
 - **延迟工具**：Node 22 的纯 JavaScript（`tools/latency/`），读链用内置 `fetch` 直接发 JSON-RPC，发交易调用 Foundry 的 `cast`。原计划用 TypeScript + viem，改掉的原因：不引入任何 npm 依赖，签名沿用已有的 Foundry keystore，不需要另一套私钥处理。
-- **网页**（可砍）：单页静态页面 + viem，不需要后端。
+- **网页**（可砍）：`web/` 下的单页静态页面（HTML + 原生 JavaScript 模块），不需要后端，也没有构建步骤。viem 从 jsDelivr 按固定版本 `viem@2.57.11` 加载（不加 npm 依赖）；钱包走浏览器注入的 EIP-1193 接口（EIP-6963 发现多个钱包时让用户选）。读链用公共 RPC，写链用钱包。订单列表从 `nextOrderId` 往回读 `getOrder`，不扫事件日志（公共节点 `eth_getLogs` 一次最多 1000 个区块）。由 GitHub Actions 发布到 GitHub Pages。
 - **数据库**：无。状态全在链上。
 - **部署**：Foundry 脚本；合约在 Sourcify 验证。
 

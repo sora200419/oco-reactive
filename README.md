@@ -234,6 +234,33 @@ If you opened a new terminal and lost the exported addresses, copy them from
 `broadcast/Oco.s.sol/1301/run-latest.json` (steps 2 and 4) and
 `broadcast/Oco.s.sol/5318007/run-latest.json` (step 3).
 
+## Order page
+
+`web/` is a single static page for the deployed contracts: connect a browser wallet extension,
+place an order (sells token0; stop-loss, take-profit and trailing distances are ticks from the
+current price), see your orders and whether Reactive Network tracks them, cancel them, and, in a
+section marked as a testnet demo, swap your own test tokens to push the price through a level and
+watch the loop arrive: the swap, the reactive transaction on Lasna and the sale, with links. It has
+no backend and no build step; viem is loaded from jsDelivr at a fixed version. The page trusts that
+CDN: there is no subresource integrity or content security policy, so a compromised CDN could
+offer the wallet a harmful transaction to sign. It is meant for testnet tokens only, and the wallet
+shows every transaction before signing.
+
+It needs a wallet holding the test tokens and a little Unichain Sepolia ETH. Run it locally (the
+page uses JavaScript modules, so open it over http, not as a file):
+
+```bash
+python -m http.server 8765 --directory web
+```
+
+Then open `http://localhost:8765`. Pushes on `main` that touch `web/` publish it to GitHub Pages
+through `.github/workflows/pages.yml`, once the repository's Pages source is set to
+"GitHub Actions". Tests for its helpers and configuration (the second needs `cast`):
+
+```bash
+node --test web/lib.test.mjs web/config.test.mjs
+```
+
 ## Measure latency
 
 `tools/latency/latency.mjs` runs the full loop many times and times it. It needs Node 22 and
