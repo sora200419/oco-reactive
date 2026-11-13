@@ -236,6 +236,8 @@ If you opened a new terminal and lost the exported addresses, copy them from
 
 ## Order page
 
+Live at <https://sora200419.github.io/oco-reactive/> (testnets only).
+
 `web/` is a single static page for the deployed contracts: connect a browser wallet extension,
 place an order (sells token0; stop-loss, take-profit and trailing distances are ticks from the
 current price), see your orders and whether Reactive Network tracks them, cancel them, and, in a

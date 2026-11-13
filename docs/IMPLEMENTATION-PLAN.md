@@ -113,11 +113,11 @@
 - [x] 欠款处理和 gas 上限压测（满额订单）（11/13）。验证：满额时 `react` gas 低于 900,000。
   - gas：测试 `test_gasCap_*` 把跟踪上限 20 张填满，量三种最坏情况，再加上真实网络的额外开销。额外开销用两笔真实 reactive 交易校准（1 张触发 112,444、3 张一起触发 171,802）：固定约 37,500，每个回调请求约 4,000。预测值：20 张最高价都移动、不触发 310,734；再加 4 张触发 367,702；4 张过期（最贵）530,958，都低于 900,000。校准用一笔没参与校准的真实过期交易检验：预测 148,038，实际 134,783，高估 9.8%（`test_gasModel_predictsARealExpiryTransaction`，要求不低估超过 10%）。Forge 1.9.0 默认 `isolate = true`（`forge config` 可见，本仓库没设），测试里的每次外部调用按一笔新交易计费（空调用 21,543，已写过的槽再写 26,784），所以测到的数字已含基础费和冷、干净存储的价格；即使关掉隔离，差的基础费也会被校准的固定部分吸收。变异检查：跟踪上限改成 60 时最坏情况预测 944,518，单笔批量上限改成 16 时 1,173,850，都会让测试失败。
   - 欠款：两边合约都不能在 `react` / `execute` 里自己还款（欠款时这两个根本不会被调用），所以靠"转账补款再调用 `coverDebt()`"；新测试 `test_coverDebt_underfundedRevertsThenTopUpSettlesIt`（reactive 和金库各一个）证明余额不够时什么都不付、补款后能还清。README 的 If nothing happens 写了补款命令，以及欠款期间漏掉事件的两种后果和检查方法：漏掉创建事件，订单永远不会触发，要撤单重下；漏掉关闭事件，reactive 合约会继续为已关闭的订单请求 callback（每小时最多 5 次，都要付费），并占着一个跟踪名额，直到过期 60 秒后的第一笔 swap（还要再付最后一次 callback）。后一种目前只写进文档，没有改合约。测试网上两个合约都还没欠过款，所以补款流程没有在链上实际跑过。
-- [ ] 最小网页（11/13 开始，负责人确定：浏览器插件钱包、GitHub Pages、加演示推价格按钮）。
+- [x] 最小网页（11/13 完成，线上：https://sora200419.github.io/oco-reactive/ ；还剩下面标了"等项目做完再处理"的 Rainbow 提示说明和 `ensureChain` 复审）。
   - [x] `web/` 静态页（11/13，裁判两轮复审通过，16 个测试；用只读的注入钱包在浏览器里验证了连接、订单列表、下单模拟通过、余额不足提示）：连钱包、读价格和余额、下单（含授权）、我的订单（含取消、Reactive 是否已跟踪）、演示推价格、时间线。纯函数（tick 计算、表单校验、时间线排序）放单独模块，用 `node --test` 测。
   - [x] 本地浏览器里对测试网实测一遍完整流程（11/13，负责人用 Rainbow 签名）：订单 #39（止损 -711、止盈 -591）下单成功、reactive 合约跟踪，推价格后时间线出现 swap、触发订单 #39（止损）、卖出订单 #39 三行，swap 到成交 2 个区块 / 2 秒，订单变成 sold。实测中发现 Rainbow 对 Unichain Sepolia 切换网络报 "Unsupported network"，页面改为失败后先请钱包添加网络再切换（该改动实测可用，尚未经裁判复审）。
   - [ ] 【等项目做完再处理，负责人 11/13 决定】Rainbow 对这个网络的交易预览一直显示 "Simulation Failed"（交易本身在链上成功；原因多半是 Rainbow 的模拟服务不支持这个测试网，未验证）。要在页面的钱包区或 README 里加一句说明，免得评委被红字吓到；并把 `ensureChain` 的改动交裁判复审。
-  - [ ] GitHub Actions 工作流发布 `web/` 到 Pages；负责人在仓库 Settings → Pages 选 "GitHub Actions"。验证：Pages 链接能打开并读到价格。
+  - [x] GitHub Actions 工作流发布 `web/` 到 Pages（11/13）。第一次运行在 configure-pages 一步失败，因为那时 Pages 还没开；负责人把 Settings → Pages 的 Source 设成 "GitHub Actions" 后重新运行成功。验证：https://sora200419.github.io/oco-reactive/ 首页和 config.js、lib.js、app.js 都返回 200；在内置浏览器里打开线上版本，读到的当前 tick 是 -769，和 `cast call normalizedTick` 一致，控制台无报错。线上版本的钱包操作还没在 Pages 地址上测过（本地 localhost 版本已用 Rainbow 测过完整流程）。
 - [ ] 交 `harness-reviewer` 审查，问题逐条修或给证据。
 - [ ] 11/30 功能冻结。
 
