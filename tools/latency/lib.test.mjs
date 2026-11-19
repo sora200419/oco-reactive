@@ -20,6 +20,8 @@ import {
   isLaggingNodeError,
   isStaleNonceError,
   retryStaleNonce,
+  rpcErrorText,
+  windowEnd,
   isAfter,
   positiveInt,
   positiveBigInt,
@@ -103,11 +105,40 @@ test('isRateLimitError recognises rate limits but not oversized queries', () => 
 test('isLaggingNodeError recognises a node that has not seen the block yet, and nothing else', () => {
   // The exact message seen from sepolia.unichain.org on 2026-11-19.
   assert.equal(isLaggingNodeError('eth_getLogs on sepolia.unichain.org: block range extends beyond current head block'), true);
+  // Lasna's answer to fromBlock past its head with toBlock "latest", captured 2026-11-19, as the
+  // RPC wrapper reports it (the cause is only in error.data.cause).
+  const lasna = {
+    message: 'invalid request url and/or body',
+    data: {
+      code: 'ErrInvalidRequest',
+      message: 'invalid request body or headers',
+      details: { retryableTowardNetwork: false },
+      cause: 'fromBlock (8749340) must be less than or equal to toBlock (8749291)',
+    },
+    code: -32602,
+  };
+  assert.equal(isLaggingNodeError('eth_getLogs on lasna-rpc.rnk.dev: ' + rpcErrorText(lasna)), true);
+  assert.equal(isLaggingNodeError('eth_getLogs on lasna-rpc.rnk.dev: ' + lasna.message), false, 'without the cause it cannot be told apart');
   assert.equal(isLaggingNodeError('header not found'), true);
   assert.equal(isLaggingNodeError('unknown block'), true);
+  // A toBlock past the head is the caller's mistake (see windowEnd), not a lagging node.
+  assert.equal(isLaggingNodeError('block not available: block not found for eth_getLogs, requested toBlock 8748913 is not yet available on the node'), false);
   assert.equal(isLaggingNodeError('block range greater than 1000 max'), false);
   assert.equal(isLaggingNodeError('execution reverted'), false);
   assert.equal(isLaggingNodeError(undefined), false);
+});
+
+test('rpcErrorText adds a gateway cause and leaves plain errors alone', () => {
+  assert.equal(rpcErrorText({ code: -32602, message: 'block range extends beyond current head block' }), 'block range extends beyond current head block');
+  assert.equal(rpcErrorText({ message: 'bad', data: { cause: 'why' } }), 'bad (why)');
+  assert.equal(rpcErrorText({ message: 'bad', data: '0x08c379a0' }), 'bad');
+  assert.equal(rpcErrorText({ code: 1 }), '{"code":1}');
+});
+
+test('windowEnd caps a log window at the chain head (replay soon after a swap, seen 2026-11-19)', () => {
+  // Replay asked Lasna for blocks 8748793..8748913 while its head was 8748899.
+  assert.equal(windowEnd(8748793, 120, 8748899), 8748899);
+  assert.equal(windowEnd(100, 60, 1000), 160);
 });
 
 test('isStaleNonceError recognises a refused send with a stale nonce only', () => {

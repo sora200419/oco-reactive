@@ -41,6 +41,8 @@ import {
   csvLine,
   redact,
   isRateLimitError,
+  rpcErrorText,
+  windowEnd,
   retryStaleNonce,
   isAfter,
   positiveInt,
@@ -131,7 +133,7 @@ async function rpc(url, method, params) {
       const body = await res.json();
       if (body.error) {
         if (isRateLimitError(body.error)) throw new Error(`rate limited: ${body.error.message}`);
-        throw new RpcError(`${method} on ${host}: ${body.error.message ?? JSON.stringify(body.error)}`);
+        throw new RpcError(`${method} on ${host}: ${rpcErrorText(body.error)}`);
       }
       return body.result;
     } catch (e) {
@@ -450,7 +452,9 @@ async function cmdReplay(args) {
       const topics = [[TOPICS.orderExecuted, TOPICS.orderExecutionFailed]];
       if (wantId !== undefined) topics.push('0x' + encodeWord(wantId));
       const exec = (
-        await chain.getLogs('origin', { address: cfg.vault, fromBlock: hex(rec.swapBlock), toBlock: hex(rec.swapBlock + 60), topics })
+        await chain.getLogs('origin', {
+          address: cfg.vault, fromBlock: hex(rec.swapBlock), toBlock: hex(windowEnd(rec.swapBlock, 60, await chain.blockNumber('origin'))), topics,
+        })
       ).filter((l) => isAfter(l, rec.swapBlock, swapLogIndex));
       if (!exec.length) throw new Error('no vault execution within 60 blocks after the swap');
       const cb = exec[0];
@@ -464,7 +468,10 @@ async function cmdReplay(args) {
 
       const lasnaStart = await blockAtOrAfter(chain, 'reactive', rec.swapBlockTs - 30);
       const trig = await chain.getLogs('reactive', {
-        address: cfg.reactive, fromBlock: hex(lasnaStart), toBlock: hex(lasnaStart + 120), topics: [TOPICS.triggered, '0x' + encodeWord(rec.orderId)],
+        address: cfg.reactive,
+        fromBlock: hex(lasnaStart),
+        toBlock: hex(windowEnd(lasnaStart, 120, await chain.blockNumber('reactive'))),
+        topics: [TOPICS.triggered, '0x' + encodeWord(rec.orderId)],
       });
       if (trig.length) {
         rec.reactiveTx = trig[0].transactionHash;

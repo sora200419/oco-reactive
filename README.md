@@ -75,9 +75,8 @@ all sold 2 blocks (2 s) after the swap. Details in [Measure latency](#measure-la
   2,000-token sale pushed the price to -1264 before the callback ran, and the order filled there.
 - **The reactive contract pays for every swap in the pool.** Each swap by anyone and each vault
   event is a reactive transaction paid in lREACT by the reactive contract: about 0.013 to 0.017
-  lREACT each, about 0.068 per demo round. On 2026-11-19, after the recorded loops and 6 latency
-  rounds, it held 0.379 lREACT. When the balance
-  runs out it goes into debt and the whole system stops until it is topped up (see
+  lREACT each, about 0.068 per demo round. On 2026-11-19, after the recorded loops, 6 latency
+  rounds and a test of the order page, it held 0.273 lREACT. When the balance runs out it goes into debt and the whole system stops until it is topped up (see
   [If nothing happens](#if-nothing-happens)). Because the test tokens can be minted by anyone, anyone
   could also drain it with many small swaps. The owner tops it up before judging.
 - **The order book can be filled by one party, for up to a week.** The vault allows 10 active

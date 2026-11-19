@@ -87,7 +87,23 @@ reactive and callback legs. Re-read with `latency.mjs replay` from their swap tr
 (`tools/latency/results/run-2026-11-19T16-15-27-670Z-replay.txt`): all six executed, each 2 blocks
 and 2 seconds from swap to sale.
 
-### State after these runs
+### Order page on the final deployment, 2026-11-19 (UTC)
+
+The owner used the live page (GitHub Pages) with Rainbow. Orders 9 and 10 (10 token0 each, stop
+-1159, take-profit -1039) were placed and tracked. Order 10 was cancelled
+(`0x9fc1ca30f21ef67441eeab80cf088dd526de058ff5adc67e7984aed0c1f76ced`, block 68255360). The page's
+"Push price down" (600 token0) then sold order 9:
+
+| Leg | Chain | Block | Block timestamp | Tx |
+|---|---|---|---|---|
+| 1. Swap from the page (tick -1212) | Unichain Sepolia | 68255400 | 1795107828 | `0x7b8cb0721faf9fb95000c30396bc11c9c254e829a490e59b6621fc70a24f14c0` |
+| 2. Reactive transaction | Reactive Lasna | 8748820 | 1795107827 | `0x09348c1b48ee02504afca8a0e8516c178740f2ed639dfd2cddd0753a8b43cf3d` |
+| 3. Callback: sale of order 9 | Unichain Sepolia | 68255402 | 1795107830 | `0x45b1427074dc41926a19a682c46a70225775d1cc17d8feb492a767cab013a9a1` |
+
+**2 blocks, 2 seconds**, the same figures the page's timeline showed. Afterwards the reactive
+contract held 0.2730 lREACT, tracked nothing, and neither contract had debt.
+
+### State after the latency rounds (before the order-page test)
 
 Read on 2026-11-19 after the latency rounds: the reactive contract held 0.3789 lREACT (1.0000 at
 deployment, 0.7846 after the three loops) and the vault 0.001996 ETH; neither has debt. The vault's

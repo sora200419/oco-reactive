@@ -114,12 +114,36 @@ export function isRateLimitError(error) {
 }
 
 /**
- * True for an error a lagging node behind a load-balanced RPC gives about a block it has not seen
- * yet, such as a log query starting at a block that another node just reported. Asking again a
- * moment later fixes it, so it means "nothing yet", not a failure.
+ * True for the error a node gives when a log query starts after the newest block it has: a
+ * lagging node behind a load-balanced RPC asked from a block that another node just reported.
+ * Asking again a moment later fixes it, so it means "nothing yet", not a failure. The wordings
+ * were captured on 2026-11-19 by asking each RPC for logs from 50 blocks past its head up to
+ * "latest": Unichain Sepolia says "block range extends beyond current head block"; Lasna's gateway
+ * says "invalid request url and/or body" and puts "fromBlock (N) must be less than or equal to
+ * toBlock (M)" only in error.data.cause, which rpcErrorText includes. The geth wordings are kept.
  */
 export function isLaggingNodeError(message) {
-  return /beyond current head|header not found|unknown block/i.test(String(message ?? ''));
+  return /beyond current head|fromBlock \(\d+\) must be less than or equal to toBlock|header not found|unknown block/i.test(
+    String(message ?? '')
+  );
+}
+
+/**
+ * Text of a JSON-RPC error: the message, plus the cause when a gateway gives it only in
+ * error.data.cause (Lasna does), so callers can tell such errors apart.
+ */
+export function rpcErrorText(error) {
+  const message = error?.message ?? JSON.stringify(error);
+  const cause = error?.data?.cause;
+  return typeof cause === 'string' && cause ? `${message} (${cause})` : message;
+}
+
+/**
+ * Last block of a log query covering `span` blocks after `from`, capped at the chain head: nodes
+ * refuse a toBlock past their newest block, so a fixed window asked for soon after an event fails.
+ */
+export function windowEnd(from, span, head) {
+  return Math.min(from + span, head);
 }
 
 /**
