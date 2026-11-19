@@ -314,6 +314,24 @@ test('retries while reading block timestamps do not mark the round (they are out
   assert.doesNotMatch(rec.note ?? '', /RPC retries/);
 });
 
+test('a node behind the swap block answering the first log polls with an error: the loop keeps polling and times the sale', async () => {
+  // Seen on 2026-11-19: the first query from the swap block went to a node that had not seen it.
+  const io = withSale(stubIo());
+  const getLogs = io.getLogs;
+  let lagging = 3;
+  io.getLogs = async (chain, f) => {
+    if (lagging-- > 0) throw new Error('eth_getLogs on sepolia.unichain.org: block range extends beyond current head block');
+    return getLogs(chain, f);
+  };
+  const rec = await measureRound(io, cfg, OWNER, 0, 0);
+  assert.equal(rec.outcome, 'executed');
+  assert.equal(rec.callbackTx, '0xcallback');
+  assert.equal(rec.chainBlocks, 2);
+  assert.equal(cancels(io), 0);
+  assert.equal(rec.rpcRetries, 0, 'an empty answer from a lagging node is not a retry');
+  assert.match(rec.note, /3 log poll\(s\) answered by a node behind the start block/);
+});
+
 test('retries while polling for the loop mark the round', async () => {
   const io = withSale(stubIo());
   const getLogs = io.getLogs;

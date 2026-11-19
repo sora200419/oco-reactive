@@ -17,6 +17,9 @@ import {
   csvLine,
   redact,
   isRateLimitError,
+  isLaggingNodeError,
+  isStaleNonceError,
+  retryStaleNonce,
   isAfter,
   positiveInt,
   positiveBigInt,
@@ -95,6 +98,61 @@ test('isRateLimitError recognises rate limits but not oversized queries', () => 
   assert.equal(isRateLimitError({ code: -32602, message: 'block range greater than 1000 max' }), false);
   assert.equal(isRateLimitError({ code: 3, message: 'execution reverted' }), false);
   assert.equal(isRateLimitError(undefined), false);
+});
+
+test('isLaggingNodeError recognises a node that has not seen the block yet, and nothing else', () => {
+  // The exact message seen from sepolia.unichain.org on 2026-11-19.
+  assert.equal(isLaggingNodeError('eth_getLogs on sepolia.unichain.org: block range extends beyond current head block'), true);
+  assert.equal(isLaggingNodeError('header not found'), true);
+  assert.equal(isLaggingNodeError('unknown block'), true);
+  assert.equal(isLaggingNodeError('block range greater than 1000 max'), false);
+  assert.equal(isLaggingNodeError('execution reverted'), false);
+  assert.equal(isLaggingNodeError(undefined), false);
+});
+
+test('isStaleNonceError recognises a refused send with a stale nonce only', () => {
+  // The exact message seen on 2026-11-19.
+  assert.equal(isStaleNonceError('cast send approve(address,uint256) failed: Error: server returned an error response: error code -32000: nonce too low: next nonce 143, tx nonce 142'), true);
+  assert.equal(isStaleNonceError('replacement transaction underpriced'), false);
+  assert.equal(isStaleNonceError('execution reverted'), false);
+  assert.equal(isStaleNonceError(undefined), false);
+});
+
+const STALE = 'cast send approve(address,uint256) failed: error code -32000: nonce too low: next nonce 143, tx nonce 142';
+const noSleep = { waitMs: 2000, sleep: async () => {} };
+
+test('retryStaleNonce sends again after a stale nonce and returns the hash (seen 2026-11-19)', async () => {
+  let calls = 0;
+  const tx = await retryStaleNonce(async () => {
+    if (++calls < 3) throw new Error(STALE);
+    return '0xapprove';
+  }, { attempts: 4, ...noSleep });
+  assert.equal(tx, '0xapprove');
+  assert.equal(calls, 3);
+});
+
+test('retryStaleNonce gives up after the allowed attempts', async () => {
+  let calls = 0;
+  await assert.rejects(
+    retryStaleNonce(async () => {
+      calls++;
+      throw new Error(STALE);
+    }, { attempts: 4, ...noSleep }),
+    /nonce too low/
+  );
+  assert.equal(calls, 4);
+});
+
+test('retryStaleNonce does not repeat a send that failed for another reason', async () => {
+  let calls = 0;
+  await assert.rejects(
+    retryStaleNonce(async () => {
+      calls++;
+      throw new Error('execution reverted');
+    }, { attempts: 4, ...noSleep }),
+    /execution reverted/
+  );
+  assert.equal(calls, 1);
 });
 
 test('isAfter orders logs by block, then log index', () => {

@@ -10,7 +10,7 @@
 //   rpcRetries() -> number of RPC retries so far (for marking disturbed samples)
 //   pendingNonce(owner) -> number (transaction count including pending ones)
 
-import { TOPICS, STATUS, encodeWord, word, int24, planRound, crossed } from './lib.mjs';
+import { TOPICS, STATUS, encodeWord, word, int24, planRound, crossed, isLaggingNodeError } from './lib.mjs';
 
 const hex = (n) => '0x' + BigInt(n).toString(16);
 /** How long to wait after a failed order send before checking whether it went out anyway. */
@@ -104,25 +104,42 @@ export async function cancelIfActive(io, cfg, rec) {
   }
 }
 
+/**
+ * One log query inside the loop. A lagging node that has not seen `fromBlock` yet answers with an
+ * error; that only means nothing can be found there yet, so it counts as an empty answer, the same
+ * as a lagging node that answers with no logs, and the loop polls again. It costs no more time
+ * than an empty poll, so it does not mark the round as retried; the record notes how many there
+ * were. Any other error still ends the round.
+ */
+async function pollLogs(io, chain, filter, out) {
+  try {
+    return await io.getLogs(chain, filter);
+  } catch (e) {
+    if (!isLaggingNodeError(e?.message)) throw e;
+    out.laggingReads++;
+    return [];
+  }
+}
+
 /** Polls both chains until this order's trigger and callback are seen, or the deadline. */
 async function watchLoop(io, cfg, id, unichainFrom, lasnaFrom, deadline, rec) {
   const idTopic = '0x' + encodeWord(id);
-  const out = {};
+  const out = { laggingReads: 0 };
   rec.maxPollCycleMs = 0;
   while (io.now() < deadline && !(out.reactive && out.callback)) {
     checkStop(io);
     const cycleStart = io.now();
     if (!out.reactive) {
-      const logs = await io.getLogs('reactive', {
+      const logs = await pollLogs(io, 'reactive', {
         address: cfg.reactive, fromBlock: hex(lasnaFrom), toBlock: 'latest', topics: [TOPICS.triggered, idTopic],
-      });
+      }, out);
       if (logs.length) out.reactive = { log: logs[0], seenAt: io.now() };
     }
     if (!out.callback) {
-      const logs = await io.getLogs('origin', {
+      const logs = await pollLogs(io, 'origin', {
         address: cfg.vault, fromBlock: hex(unichainFrom), toBlock: 'latest',
         topics: [[TOPICS.orderExecuted, TOPICS.orderExecutionFailed], idTopic],
-      });
+      }, out);
       if (logs.length) out.callback = { log: logs[0], seenAt: io.now() };
     }
     rec.maxPollCycleMs = Math.max(rec.maxPollCycleMs, io.now() - cycleStart);
@@ -216,6 +233,9 @@ async function roundSteps(io, cfg, owner, index, center, rec) {
   const seen = await watchLoop(io, cfg, id, rec.swapBlock, lasnaFrom, io.now() + cfg.roundTimeoutMs, rec);
   timedRetries += io.rpcRetries() - windowStart;
   rec.rpcRetries = timedRetries;
+  if (seen.laggingReads > 0) {
+    addNote(rec, `${seen.laggingReads} log poll(s) answered by a node behind the start block, counted as "not yet"`);
+  }
   if (timedRetries > 0) addNote(rec, 'RPC retries while timing; observed times include backoff');
 
   // Block timestamps are only needed for the on-chain figures, so they are read after the timed

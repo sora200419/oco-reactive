@@ -113,6 +113,41 @@ export function isRateLimitError(error) {
   return /rate.?limit|too many requests|limit exceeded|capacity exceeded/i.test(String(error.message ?? ''));
 }
 
+/**
+ * True for an error a lagging node behind a load-balanced RPC gives about a block it has not seen
+ * yet, such as a log query starting at a block that another node just reported. Asking again a
+ * moment later fixes it, so it means "nothing yet", not a failure.
+ */
+export function isLaggingNodeError(message) {
+  return /beyond current head|header not found|unknown block/i.test(String(message ?? ''));
+}
+
+/**
+ * True for a send refused with "nonce too low": the node that picked the nonce had not yet seen
+ * our previous transaction, so this one was not accepted. Sending again is safe only for a call
+ * whose repetition changes nothing, such as approving the same amount.
+ */
+export function isStaleNonceError(message) {
+  return /nonce too low/i.test(String(message ?? ''));
+}
+
+/**
+ * Runs `send` and, when it is refused with a stale nonce, waits and runs it again, up to
+ * `attempts` tries in all. Any other error is thrown at once. Only for sends whose repetition
+ * changes nothing (see isStaleNonceError).
+ */
+export async function retryStaleNonce(send, { attempts, waitMs, sleep, log = () => {} }) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await send();
+    } catch (e) {
+      if (!isStaleNonceError(e?.message) || attempt >= attempts) throw e;
+      log(`  stale nonce from a lagging node; trying again (${attempt}/${attempts - 1})`);
+      await sleep(waitMs);
+    }
+  }
+}
+
 /** True when log `l` comes after the position (block, logIndex) on the same chain. */
 export function isAfter(l, block, logIndex) {
   const b = Number(BigInt(l.blockNumber));

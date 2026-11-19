@@ -1,0 +1,23 @@
+round,kind,outcome,orderId,createTx,level,tickAfterSwap,swapTx,swapBlock,swapBlockTs,reactiveTx,reactiveBlock,reactiveBlockTs,callbackTx,callbackBlock,callbackBlockTs,chainBlocks,chainSeconds,obsMsSwapToReactive,obsMsSwapToCallback,obsMsOrderToTracked,maxPollCycleMs,rpcRetries,note
+1,,executed,3,,,-1243,0xffd8984db68e0aaf17edf2475149b29824f181690114be054ab433d5ccd778c0,68252509,1795104937,0x85dfac294736f893b31254c9195dbb675eafc0dd6a4d4404c524890105a33317,8746132,1795104936,0x0de9f2628a03c9b73e5ec00b9cd1d99de8ffb4f7095181b349533ae8630c832f,68252511,1795104939,2,2,,,,,,replay
+2,,executed,4,,,-1118,0xdfe9ca958a447a15cba7b5860a04fbc2dc38427cb7f04032329466fd5b97589f,68252527,1795104955,0x5e9f90cb2adb4a3437c2abf63a7408a6fd60a62ff96a22c92416b83a834d7e62,8746149,1795104954,0x53cd0dd538ad9b96211fe47b49c2ae9bd85750738c79bcb28b372ad924c68026,68252529,1795104957,2,2,,,,,,replay
+3,,executed,5,,,-1233,0xb0ab807586c512481f6648cb85fb0db9755e3d2630c959dee63015a2c58687d5,68252544,1795104972,0x599f72dc8feec9bea0831f553a41b5d9adc84112e8a6a6358310452c0d8b59d5,8746165,1795104971,0xdf3865ade6c05b2889071f4bb0be1c5770cbd76dd55bdac48e6a0180c27d399e,68252546,1795104974,2,2,,,,,,replay
+4,,executed,6,,,-1108,0xb975be4419e782f6d9d4c503f8f3bb9eec6818b15adc8888c9a319a621c60023,68252562,1795104990,0xd29b8a979a05c9562f470371a13a38972c1143b4a4d6ecedec625be69ade0894,8746182,1795104989,0x36b9c55e5635b9a69aeb703a7b8c3b9b3d791a98ffc5d9406c3dcd24732ca0de,68252564,1795104992,2,2,,,,,,replay
+5,,executed,7,,,-1222,0x1229bc402bd3fd1f358e70069240368657bd797e85f75fe33d552fb6c444efab,68252580,1795105008,0xf17b85fadb7706aded87501fc7136c90c76a0e7b4cb25472354a10a13df6eadf,8746199,1795105007,0xa0d4acd9a35f27a15f524fc7fc5a3b442af2e1362c527cb531141fd19572c03e,68252582,1795105010,2,2,,,,,,replay
+6,,executed,8,,,-1098,0x491e47b23871bd6ff865879dd96928bf5b3495dda93bb31da7275d944a30fe7a,68252597,1795105025,0x94064e5f65a9d15640fc33f2c29abdc1976f65028b72629979c0a2f45dcd9b83,8746215,1795105024,0xf0f16c76ee73722f47065d95c9f63b1a60aa3e73904db08d4dce7be9cfe0e863,68252599,1795105027,2,2,,,,,,replay
+
+# Replay summary (no observed times in replay)
+
+Rounds: 6, executed: 6
+
+Percentiles are nearest-rank over executed rounds. Observed times exclude rounds with RPC retries.
+
+| Measure | n | min | p50 | p95 | max | mean |
+|---|---|---|---|---|---|---|
+| Swap block to callback block, blocks (Unichain Sepolia) | 6 | 2 | 2 | 2 | 2 | 2 |
+| Swap block to callback block, seconds (same chain's clock) | 6 | 2 s | 2 s | 2 s | 2 s | 2 s |
+| Observed: swap mined to reactive tx seen on Lasna, ms | 0 | | | | | |
+| Observed: swap mined to callback seen, ms | 0 | | | | | |
+| Observed: order mined to tracked on Lasna, ms | 0 | | | | | |
+| Largest poll cycle in the round (resolution of observed times), ms | 0 | | | | | |
+

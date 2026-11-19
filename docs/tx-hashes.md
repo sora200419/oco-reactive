@@ -4,6 +4,95 @@ Every value here was read back from the chain, not copied from terminal output.
 
 Explorers: Unichain Sepolia `https://sepolia.uniscan.xyz`, Reactive Lasna `https://lasna.reactscan.net`.
 
+## Final deployment (current), 2026-11-19 (UTC)
+
+The vault and the reactive contract were redeployed with the review-R4 limits: a minimum order of
+10 tokens (`MIN_ORDER_AMOUNT` = 10e18) and a maximum lifetime of 7 days (`MAX_ORDER_DURATION`;
+30 days before). The pool, the two test tokens, `DemoLiquidity` and `V4Swapper` from the section
+below are reused unchanged. Every value was read back from the chain.
+
+| Contract | Chain | Address | Deployment tx | Block |
+|---|---|---|---|---|
+| OcoReactive | Reactive Lasna (5318007) | `0xc361DC0c9F97A3AB6069Fbeff1F0cD3E3A82C80F` | `0x253ea9530ee413339e96af8e335415df918cdbefc1cc865050e7bad30b9b9355` | 8745193 |
+| OrderVault | Unichain Sepolia (1301) | `0x4D22d3F8cac89435823D78fb9737e42273137517` | `0xef13537379ecfc8e8e89d5ba05e6bef85572240995a7c583fa334903a3f1f38e` | 68251591 |
+
+- The reactive contract was funded with 1 lREACT at deployment; the vault with 0.002 ETH.
+- Before wiring, the vault's `_CALLBACK_SENDER()` returned the new reactive contract and its
+  `POOL_ID()` returned `0xcbbd24e7d8b2783d256bef331fb752ced5658e431d833b154c243ba4726be209`, the
+  same as the first vault's. `MIN_ORDER_AMOUNT()` returned 1e19 and `MAX_ORDER_DURATION()` 604800.
+- Wiring: `OcoReactive.setVault`, tx `0x24fd206bd6378f1706f14241d1bc10ece033fad08953a53c5a89836ef8747c8e`
+  (Lasna block 8745349, status success). The receipt holds the `VaultSet` event and five
+  subscription events from the system contract, one per vault order event; the constructor had
+  already subscribed to the pool's `Swap` event. After it, `vault()` on the reactive contract
+  returns the new vault, the vault's `nextOrderId()` is 0, and neither contract has debt.
+- To pay for the new reactive contract, 0.7 lREACT was withdrawn from the first one
+  (`withdraw`, tx `0xca793f6ab9acf58f49ba1d2b52fa64c6d8e008b2a0e14a0ed7a825f98701c223`, Lasna block
+  8744991). The first vault and reactive contract are left in place and are no longer used; the
+  first vault has no active orders.
+- Both new contracts are verified on Sourcify with an exact match (creation and runtime bytecode):
+  job `7c383243-40e1-4bdc-9f29-a446db9b8b82` for the vault (chain 1301) and
+  `2df0c4b3-0aef-4d6f-b5f4-97b08c6f1993` for the reactive contract (chain 5318007).
+
+### Loops on the final deployment, 2026-11-19
+
+All three ran from the deployer wallet with `script/Oco.s.sol` (`PlaceOrder`, then `Swap`), each
+order selling 100 token0 with a 5% slippage bound. The reactive transaction is the one emitting
+`Triggered` for the order; its threshold is the level the reactive contract used.
+
+**Stop-loss, order 0.** Created at tick -886 with stop -1006 and take-profit -766
+(`createOrder` `0x0eb1973a0c0a97de93a2a748ebc280110e0b08fcc84df4b61ad21a34bec4f696`, block
+68251939). 2,000 token0 sold to push the price down.
+
+| Leg | Chain | Block | Block timestamp | Tx |
+|---|---|---|---|---|
+| 1. Swap through the stop (tick -1264) | Unichain Sepolia | 68251975 | 1795104403 | `0x3c0719a51af3fbe12aac6a8a518b3eec49a9c780716c03e355b9791f672a3e5b` |
+| 2. Reactive transaction (side 1, threshold -1006) | Reactive Lasna | 8745635 | 1795104403 | `0x43f7551bee1a427b8914a6ccec4d262a217d54a69af16c83861af65f3757cbbe` |
+| 3. Callback: sale (`OrderExecuted`, side 1) | Unichain Sepolia | 68251977 | 1795104405 | `0xbdc557da6872b4d42ae122bc0ab80f0c75cb5d86b5624986cbaf59808ce3dbdb` |
+
+Sold for 87.789 token1 at tick -1264. **2 blocks, 2 seconds.** `react()` used 129,712 gas.
+
+**Take-profit, order 1.** Created at tick -1282 with take-profit -1132 and stop -1682
+(`0x7e07f039b83b3af14feca46355fbdffc0602690f621c940b52291cc4c9011053`, block 68252069). 1,000
+token1 sold to push the price up.
+
+| Leg | Chain | Block | Block timestamp | Tx |
+|---|---|---|---|---|
+| 1. Swap through the take-profit (tick -1071) | Unichain Sepolia | 68252102 | 1795104530 | `0xd420958b45c324e1c63b1caedb41d7697c3ff7c03b87dce0352a36b928dfe9c8` |
+| 2. Reactive transaction (side 2, threshold -1132) | Reactive Lasna | 8745751 | 1795104529 | `0xd281f38371d7fb3776f0a705edd41d30157a80eb47bc50e746a6b91b0a350d8a` |
+| 3. Callback: sale (`OrderExecuted`, side 2) | Unichain Sepolia | 68252104 | 1795104532 | `0x61e6b078f1bc377cef2186f98717540bd245078fe146659b0f6ba3f75c1e5746` |
+
+Sold for 89.496 token1 at tick -1071. **2 blocks, 2 seconds.** `react()` used 112,501 gas.
+
+**Trailing stop, order 2.** Created at tick -1090 with only a trailing stop of 100 ticks
+(`0x6f8ff94576bbc0fc618c0136ac28d4198509557d2204449e9d475f6836edc791`, block 68252137). 800 token1
+sold to raise the price to a new peak, tick -922
+(`0x989099e08aa1ca444a2ab9d2c9c45ad82623d67cfa79f51eb352d5df489430f4`, block 68252185; the order
+stayed active), then 1,000 token0 sold to push it down.
+
+| Leg | Chain | Block | Block timestamp | Tx |
+|---|---|---|---|---|
+| 1. Swap through peak minus 100 (tick -1111) | Unichain Sepolia | 68252241 | 1795104669 | `0xfb24efacd151bb933589128e3d875c89b70a690f8a98330c130a3feaff68567c` |
+| 2. Reactive transaction (side 3, threshold -1022) | Reactive Lasna | 8745882 | 1795104668 | `0x095b82460efe554480502449766ff482cf3401cdda27b2e36ccf23c4bdf23e4c` |
+| 3. Callback: sale (`OrderExecuted`, side 3) | Unichain Sepolia | 68252243 | 1795104671 | `0x2a9a04251dd065ff2d6f2f5b56aed1d304d210d542c11c267331508e8456af08` |
+
+The threshold -1022 is the peak -922 minus 100, so the peak was tracked on Lasna from the rising
+swap. Sold for 89.133 token1 at tick -1111. **2 blocks, 2 seconds.** `react()` used 113,108 gas.
+
+### Latency rounds on the final deployment, 2026-11-19
+
+`node tools/latency/latency.mjs run 6` placed orders 3 to 8 (10 token0 plus 7 wei each). Every
+round's sale went through, but the tool's live polling stopped each round on a lagging-node error
+(see the README, Measure latency), so the run file lists them as `executed-late` without the
+reactive and callback legs. Re-read with `latency.mjs replay` from their swap transactions
+(`tools/latency/results/run-2026-11-19T16-15-27-670Z-replay.txt`): all six executed, each 2 blocks
+and 2 seconds from swap to sale.
+
+### State after these runs
+
+Read on 2026-11-19 after the latency rounds: the reactive contract held 0.3789 lREACT (1.0000 at
+deployment, 0.7846 after the three loops) and the vault 0.001996 ETH; neither has debt. The vault's
+`nextOrderId()` is 9 with no active orders, and the reactive contract tracks none.
+
 ## Minimal loop (ping → react → pong), 2026-11-11
 
 ### Deployed contracts
@@ -41,7 +130,11 @@ Notes:
 - `SYSTEM.getCallbacks(reactiveTxHash)` returned an empty array when queried a few minutes after
   delivery. Not yet understood; the legs above were matched through contract events instead.
 
-## OCO order system: stop-loss on Uniswap v4, 2026-11-12
+## OCO order system: stop-loss on Uniswap v4, 2026-11-12 (first deployment, superseded)
+
+The vault and reactive contract in this section were replaced on 2026-11-19 (see the final
+deployment above); the pool, tokens and swapper below are still in use. The loops recorded here ran
+against the first vault.
 
 Every value below was read back from the chain (receipts, contract getters, event logs).
 Explorers: Unichain Sepolia `https://sepolia.uniscan.xyz`, Reactive Lasna `https://lasna.reactscan.net`.

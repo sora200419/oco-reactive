@@ -17,6 +17,15 @@ test('every address is written with its EIP-55 checksum (viem rejects a wrong on
 
 test('addresses match the deployment recorded in docs/tx-hashes.md', () => {
   const doc = readFileSync(new URL('../docs/tx-hashes.md', import.meta.url), 'utf8').toLowerCase();
+  // The vault and reactive contract must be the current ones, not the superseded first deployment
+  // that is still listed further down; the pool, tokens and swapper are shared by both.
+  const start = doc.indexOf('## final deployment (current)');
+  assert.ok(start >= 0, 'docs/tx-hashes.md has no "Final deployment (current)" section');
+  const end = doc.indexOf('\n## ', start + 1);
+  const current = doc.slice(start, end < 0 ? undefined : end);
+  for (const name of ['vault', 'reactive']) {
+    assert.ok(current.includes(ADDR[name].toLowerCase()), `${name} ${ADDR[name]} is not the current deployment`);
+  }
   for (const [name, a] of Object.entries(ADDR)) {
     assert.ok(doc.includes(a.toLowerCase()), `${name} ${a} is not in docs/tx-hashes.md`);
   }

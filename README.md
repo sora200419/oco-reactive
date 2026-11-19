@@ -36,8 +36,8 @@ OrderVault       --OrderCreated/          checks every tracked order          re
 
 | Contract | Chain | Address |
 |---|---|---|
-| OrderVault | Unichain Sepolia (1301) | [`0x6a8932797F1FB9D164F6e075Cb4F525FEb824184`](https://sepolia.uniscan.xyz/address/0x6a8932797F1FB9D164F6e075Cb4F525FEb824184) |
-| OcoReactive | Reactive Lasna (5318007) | [`0xc358fFaA2bCc6bE005Ab4063Fb7dfcc2Ef4f56fe`](https://lasna.reactscan.net/address/0xc358fFaA2bCc6bE005Ab4063Fb7dfcc2Ef4f56fe) |
+| OrderVault | Unichain Sepolia (1301) | [`0x4D22d3F8cac89435823D78fb9737e42273137517`](https://sepolia.uniscan.xyz/address/0x4D22d3F8cac89435823D78fb9737e42273137517) |
+| OcoReactive | Reactive Lasna (5318007) | [`0xc361DC0c9F97A3AB6069Fbeff1F0cD3E3A82C80F`](https://lasna.reactscan.net/address/0xc361DC0c9F97A3AB6069Fbeff1F0cD3E3A82C80F) |
 | V4Swapper | Unichain Sepolia (1301) | [`0x715666dc26bB46dBADA0112E0c9E6f7Db945EDAa`](https://sepolia.uniscan.xyz/address/0x715666dc26bB46dBADA0112E0c9E6f7Db945EDAa) |
 | Test token 0 (OCOA) | Unichain Sepolia (1301) | [`0x0A75150631C8E1ad3FcB48D8B0478B1DC685CD2b`](https://sepolia.uniscan.xyz/address/0x0A75150631C8E1ad3FcB48D8B0478B1DC685CD2b) |
 | Test token 1 (OCOB) | Unichain Sepolia (1301) | [`0x354Fc758Ac107D77FF53d3e0b0B2BAE1C55d58EC`](https://sepolia.uniscan.xyz/address/0x354Fc758Ac107D77FF53d3e0b0B2BAE1C55d58EC) |
@@ -53,34 +53,40 @@ the vault's sale (the callback) on Unichain Sepolia.
 
 | Order | Swap | Reactive transaction | Sale | Swap to sale |
 |---|---|---|---|---|
-| Stop-loss (order 0) | [`0x3ca44c…9160`](https://sepolia.uniscan.xyz/tx/0x3ca44cc7f75b2097acc48eb8cf702c6abe2da96d4bb50bedb8cb5f7d28199160) | [`0x1d5b75…28d4`](https://lasna.reactscan.net/tx/0x1d5b755512e49157d5af6e069d00853622647f46edc7ac993ec1faf1bb0928d4) | [`0x47346e…a4c6`](https://sepolia.uniscan.xyz/tx/0x47346e451d0f34896f4c5c43230bd4d4a57297a42d5906953a37ebd6a457a4c6) | 2 blocks, 2 s |
-| Take-profit (order 1) | [`0x85fa6c…af2b`](https://sepolia.uniscan.xyz/tx/0x85fa6cbb6217c4f407964d9a18cb5f70dbff6901f4877afe17c73cfa52c3af2b) | [`0xc5226d…bcbc`](https://lasna.reactscan.net/tx/0xc5226df2431bb28c6218a00e96d27037f37f469713c709cc4a8a4f3a63ffbcbc) | [`0xc676b4…1a0e`](https://sepolia.uniscan.xyz/tx/0xc676b454087ff03bf086b6c2dd862b4ab9cdfc88a32f33da1b7ecb756be91a0e) | 2 blocks, 2 s |
-| Trailing stop (order 2) | [`0x2c98df…8f4e`](https://sepolia.uniscan.xyz/tx/0x2c98dfeb07448eed2407d2c5763ce6ae2749e6531d0a36b99b4d2fdade6c8f4e) | [`0x6c58c2…df75`](https://lasna.reactscan.net/tx/0x6c58c2a402ea86993396d120078edc1a3682889b3066c42d32ea0922eda8df75) | [`0x255c6a…f7f2`](https://sepolia.uniscan.xyz/tx/0x255c6af5f7132a4b683a72f385ad6a98017ab20c4cd241dc3441f3bc3c26f7f2) | 3 blocks, 3 s |
+| Stop-loss (order 0) | [`0x3c0719…3e5b`](https://sepolia.uniscan.xyz/tx/0x3c0719a51af3fbe12aac6a8a518b3eec49a9c780716c03e355b9791f672a3e5b) | [`0x43f755…cbbe`](https://lasna.reactscan.net/tx/0x43f7551bee1a427b8914a6ccec4d262a217d54a69af16c83861af65f3757cbbe) | [`0xbdc557…dbdb`](https://sepolia.uniscan.xyz/tx/0xbdc557da6872b4d42ae122bc0ab80f0c75cb5d86b5624986cbaf59808ce3dbdb) | 2 blocks, 2 s |
+| Take-profit (order 1) | [`0xd42095…e9c8`](https://sepolia.uniscan.xyz/tx/0xd420958b45c324e1c63b1caedb41d7697c3ff7c03b87dce0352a36b928dfe9c8) | [`0xd281f3…0d8a`](https://lasna.reactscan.net/tx/0xd281f38371d7fb3776f0a705edd41d30157a80eb47bc50e746a6b91b0a350d8a) | [`0x61e6b0…5746`](https://sepolia.uniscan.xyz/tx/0x61e6b078f1bc377cef2186f98717540bd245078fe146659b0f6ba3f75c1e5746) | 2 blocks, 2 s |
+| Trailing stop (order 2) | [`0xfb24ef…567c`](https://sepolia.uniscan.xyz/tx/0xfb24efacd151bb933589128e3d875c89b70a690f8a98330c130a3feaff68567c) | [`0x095b82…3e4c`](https://lasna.reactscan.net/tx/0x095b82460efe554480502449766ff482cf3401cdda27b2e36ccf23c4bdf23e4c) | [`0x2a9a04…af08`](https://sepolia.uniscan.xyz/tx/0x2a9a04251dd065ff2d6f2f5b56aed1d304d210d542c11c267331508e8456af08) | 2 blocks, 2 s |
 
-Also recorded there: a cancellation, an expiry closed through the network, and one reactive
-transaction triggering three orders at once.
+These ran on 2026-11-19 against the final deployment above. The same three kinds of loop, plus a
+cancellation, an expiry and one swap triggering three orders, were first recorded against the
+first deployment (same code apart from the order limits); they stay in
+[`docs/tx-hashes.md`](docs/tx-hashes.md).
 
-**Latency:** over 30 measured rounds every order sold, 2 blocks (2 s) after the crossing swap at
-the median and 3 blocks (3 s) at p95. Details in [Measure latency](#measure-latency).
+**Latency:** over 30 measured rounds on the first deployment every order sold, 2 blocks (2 s) after
+the crossing swap at the median and 3 blocks (3 s) at p95; 6 more rounds on the final deployment
+all sold 2 blocks (2 s) after the swap. Details in [Measure latency](#measure-latency).
 
 ## Known limitations
 
 - **Orders fill at the market price, not at the level.** When a level is crossed, the vault sells
   the whole order at the pool price at that moment. Its slippage bound (5% from the order page and
   the scripts) is measured against the pool's own price at execution, so it guards against a thin
-  pool, not against a price that jumped past the level. Order 0's stop was at tick -120; a single
-  2,000-token sale pushed the price to -395 before the callback ran, and the order filled there.
+  pool, not against a price that jumped past the level. Order 0's stop was at tick -1006; a single
+  2,000-token sale pushed the price to -1264 before the callback ran, and the order filled there.
 - **The reactive contract pays for every swap in the pool.** Each swap by anyone and each vault
   event is a reactive transaction paid in lREACT by the reactive contract: about 0.013 to 0.017
-  lREACT each, about 0.068 per demo round. On 2026-11-13 it held 0.848 lREACT. When the balance
+  lREACT each, about 0.068 per demo round. On 2026-11-19, after the recorded loops and 6 latency
+  rounds, it held 0.379 lREACT. When the balance
   runs out it goes into debt and the whole system stops until it is topped up (see
   [If nothing happens](#if-nothing-happens)). Because the test tokens can be minted by anyone, anyone
   could also drain it with many small swaps. The owner tops it up before judging.
-- **The order book can be filled by one party.** The vault allows 10 active orders in total and 3
-  per address, with no minimum amount and lifetimes up to 30 days. Someone using 4 addresses could
-  fill all 10 places with tiny orders, and new orders would then fail with `TooManyActiveOrders`
-  until those expire; only their owners can cancel them. The final deployment is planned to add a
-  minimum order amount and a shorter maximum lifetime.
+- **The order book can be filled by one party, for up to a week.** The vault allows 10 active
+  orders in total and 3 per address, each selling at least 10 tokens and living at most 7 days.
+  Someone using 4 addresses could still fill all 10 places with minimum orders, and new orders
+  would then fail with `TooManyActiveOrders` until those are cancelled by their owners or expire.
+  Once an order has expired anyone can close it with `reclaimExpired`, which refunds its owner and
+  frees the place. Because the test tokens can be minted by anyone, the minimum only keeps out dust
+  orders here; the 7-day limit is what bounds how long places can be held.
 - **An expiry request can arrive too early for the vault.** The reactive contract asks the vault to
   close an expired order 60 seconds after its expiry by Lasna's clock, and stops tracking it at that
   moment. If Unichain Sepolia's clock were more than 60 seconds behind, the vault would ignore the
@@ -374,7 +380,21 @@ deployment steps above.
 
 ### Results
 
-30 rounds on 2026-11-13 (UTC), 15 stop-loss and 15 take-profit, all 30 sold. Raw data with every
+On the final deployment, 6 rounds on 2026-11-19 (UTC), 3 stop-loss and 3 take-profit, all sold
+2 blocks (2 s) after their swap. That run exposed a bug in the newer version of the tool: right
+after the swap was mined, its log query started at the swap's block and went to a node that had
+not seen that block yet; the node answered with an error ("block range extends beyond current head
+block") and the tool gave up on the round, so it recorded no observed times. The orders were sold
+regardless, and these on-chain figures come from re-reading the six rounds from their swap
+transactions with the tool's read-only `replay` mode:
+[`run-2026-11-19T16-15-27-670Z.csv`](tools/latency/results/run-2026-11-19T16-15-27-670Z.csv)
+(the run as recorded) and
+[`run-2026-11-19T16-15-27-670Z-replay.txt`](tools/latency/results/run-2026-11-19T16-15-27-670Z-replay.txt)
+(the replay). The tool now treats that answer as "nothing yet" and polls again; the fix is covered
+by a unit test but has not yet been run against the testnets.
+
+On the first deployment, 30 rounds on 2026-11-13 (UTC), 15 stop-loss and 15 take-profit, all 30
+sold. Raw data with every
 transaction hash: [`tools/latency/results/run-2026-11-13T05-32-12-039Z.csv`](tools/latency/results/run-2026-11-13T05-32-12-039Z.csv).
 
 | From the swap that crosses the level to the sale (Unichain Sepolia) | p50 | p95 | max |
@@ -396,7 +416,7 @@ latency. In this run the swap block's timestamp was looked up between seeing the
 poll, which added at least one RPC round trip to every round, and each round's RPC calls needed 1
 to 3 retries of 400 ms, very likely that same lookup waiting for a lagging node. Since this run the
 tool reads timestamps after the timing ends and re-reads order states before concluding anything;
-that newer version is covered by unit tests but has not yet been run against the testnets. The
+that newer version is the one that hit the lagging-node bug described above. The
 run's own summary file leaves these figures out because of the retries; computed from the CSV
 anyway:
 

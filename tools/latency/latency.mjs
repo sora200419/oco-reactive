@@ -41,6 +41,7 @@ import {
   csvLine,
   redact,
   isRateLimitError,
+  retryStaleNonce,
   isAfter,
   positiveInt,
   positiveBigInt,
@@ -55,6 +56,8 @@ const RPC_RETRIES = 4;
 const CAST_TIMEOUT_MS = 120_000;
 const BLOCK_LOOKUPS = 15;
 const BLOCK_LOOKUP_MS = 400;
+const APPROVE_ATTEMPTS = 4;
+const STALE_NONCE_WAIT_MS = 2_000;
 const SYSTEM_CONTRACT = '0x8888888888888888888888888888888888888888';
 const CALLBACK_PROXY = '0x775c9b990ade401060b78d0e98684eef8d2466c1';
 /** Estimated lREACT spent by the reactive contract per round (four reactive transactions). */
@@ -311,7 +314,12 @@ async function ensureApprovals(cfg, chain, io, owner) {
   ]) {
     if ((await erc20(chain, token, SELECTORS.allowance, owner, spender)) >= MAX / 2n) continue;
     console.log(`approving ${spender} to spend ${token}`);
-    const tx = await io.send(token, 'approve(address,uint256)', [spender, MAX.toString()]);
+    // Approving the same amount again changes nothing, so a send refused because a lagging node
+    // handed out a stale nonce can simply be repeated.
+    const tx = await retryStaleNonce(
+      () => io.send(token, 'approve(address,uint256)', [spender, MAX.toString()]),
+      { attempts: APPROVE_ATTEMPTS, waitMs: STALE_NONCE_WAIT_MS, sleep, log: console.log }
+    );
     const { receipt } = await io.waitForReceipt(tx, cfg.roundTimeoutMs);
     if (receipt.status !== '0x1') throw new Error(`approve reverted (${tx})`);
   }
